@@ -85,7 +85,7 @@ data/                   # salinan dataset bersih yang dipakai dashboard
 
 ## Screenshot
 
-- `docs/dashboard-full.png` — tampilan penuh dashboard (tahun 2025).
+- `docs/dashboard-full.png` — tampilan penuh dashboard (tahun 2025, dengan donut & tabel komposisi).
 - `docs/dashboard-interaksi-tahun-2021-detail.png` — filter tahun 2021 (komposisi dengan kategori NA) + panel “Detail & sumber” terbuka.
 
 ## Kontributor

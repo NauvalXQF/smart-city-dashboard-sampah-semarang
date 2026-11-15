@@ -351,10 +351,44 @@
     byId('komposisiYearBadge').textContent = state.komposisiYear;
   }
 
+  function renderDonut(cur, rasioBelum) {
+    var svg = byId('chartDonut');
+    clearSvg(svg);
+    var cx = 80, cy = 80, r = 62, inner = 38;
+    var total = cur.terkelola_tahunan_ton + cur.belum_terkelola_tahunan_ton;
+    var pKelola = total > 0 ? (cur.terkelola_tahunan_ton / total) : 0;
+    var segs = [
+      { name: 'Terkelola', value: cur.terkelola_tahunan_ton, color: '#1a7f37', pct: pKelola * 100 },
+      { name: 'Belum terkelola', value: cur.belum_terkelola_tahunan_ton, color: '#cf222e', pct: (1 - pKelola) * 100 }
+    ];
+    function arcPath(startAngle, endAngle, radius, innerR) {
+      var large = (endAngle - startAngle) > Math.PI ? 1 : 0;
+      var x1 = cx + radius * Math.cos(startAngle), y1 = cy + radius * Math.sin(startAngle);
+      var x2 = cx + radius * Math.cos(endAngle), y2 = cy + radius * Math.sin(endAngle);
+      var x3 = cx + innerR * Math.cos(endAngle), y3 = cy + innerR * Math.sin(endAngle);
+      var x4 = cx + innerR * Math.cos(startAngle), y4 = cy + innerR * Math.sin(startAngle);
+      return ['M', x1, y1, 'A', radius, radius, 0, large, 1, x2, y2, 'L', x3, y3, 'A', innerR, innerR, 0, large, 0, x4, y4, 'Z'].join(' ');
+    }
+    var angle = -Math.PI / 2;
+    segs.forEach(function (s) {
+      var sweep = (s.value / total) * Math.PI * 2;
+      el('path', { d: arcPath(angle, angle + sweep, r, inner), fill: s.color, 'class': 'donut-seg',
+        'tabindex': '0', dataTip: s.name + '\nNilai: ' + idNum(s.value, 2) + ' ton\nProporsi: ' + idNum(s.pct, 2) + '%' }, svg);
+      angle += sweep;
+    });
+    el('text', { x: cx, y: cy - 2, 'text-anchor': 'middle', 'class': 'donut-center-value' }, svg, idNum(cur.persen_kelola, 1) + '%');
+    el('text', { x: cx, y: cy + 14, 'text-anchor': 'middle', 'class': 'donut-center-label' }, svg, 'terkelola');
+
+    byId('donutLegend').innerHTML = segs.map(function (s) {
+      return '<div class="row"><span class="swatch" style="background:' + s.color + '"></span><span>' + s.name + ' — ' + idNum(s.value, 0) + ' ton (' + idNum(s.pct, 2) + '%)</span></div>';
+    }).join('');
+  }
+
   function renderKesenjangan() {
     var y = state.year, cur = kpiAt(y);
     var rasioBelum = (cur.belum_terkelola_tahunan_ton / cur.timbulan_tahunan_ton) * 100;
     byId('kesenjanganYearBadge').textContent = y;
+    renderDonut(cur, rasioBelum);
     var rows = [
       ['Timbulan tahunan', idNum(cur.timbulan_tahunan_ton, 2) + ' ton'],
       ['Terkelola', idNum(cur.terkelola_tahunan_ton, 2) + ' ton (' + idNum(cur.persen_kelola, 2) + '%)'],
@@ -465,7 +499,7 @@
     });
     var bannerBtn = byId('bannerDetails');
     if (bannerBtn) bannerBtn.addEventListener('click', openPanel);
-    ['chartTimbulan', 'chartKelola', 'chartIndeks', 'chartKomposisi'].forEach(function (id) {
+    ['chartTimbulan', 'chartKelola', 'chartIndeks', 'chartKomposisi', 'chartDonut'].forEach(function (id) {
       bindTooltips(byId(id));
     });
     byId('detailsClose').addEventListener('click', function () {
