@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard Pengelolaan Sampah Kota Semarang (2021–2025)</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Dashboard Pengelolaan Sampah Kota Semarang</h1>
+      <p class="subtitle">Data historis agregat Kota Semarang · periode 2021–2025 · bukan pemantauan real-time</p>
+    </div>
+    <div class="controls">
+      <label for="yearSelect">Tahun</label>
+      <select id="yearSelect" aria-label="Pilih tahun"></select>
+      <button id="detailsToggle" type="button" aria-expanded="false" aria-controls="detailsPanel">Detail &amp; sumber</button>
+    </div>
+  </header>
+
+  <div class="alert-banner" role="note">
+    <strong>Catatan keterbandingan:</strong> perubahan definisi/cakupan pelaporan 2024–2025 membuat perbandingan antartahun tidak setara. Hasil verifikasi: <code>validasi_data.csv</code> → “PERLU TINJAU”. Angka 2024–2025 adalah sinyal audit pencatatan, bukan evaluasi kausal kinerja lapangan.
+  </div>
+
+  <main class="page">
+    <!-- ZONA ATAS: executive scorecards -->
+    <section class="zone zone-top" aria-labelledby="zonaAtas">
+      <h2 id="zonaAtas" class="zone-title">Zona Atas · Ringkasan Eksekutif <span class="hint">(jawaban &lt; 3 detik)</span></h2>
+      <div id="scorecards" class="scorecards"></div>
+      <div class="threshold-legend">
+        <span><span class="dot dot-green"></span>≥ 90% (usulan)</span>
+        <span><span class="dot dot-yellow"></span>60–90% (usulan)</span>
+        <span><span class="dot dot-red"></span>&lt; 60% (usulan)</span>
+        <span class="muted">Ambang di atas adalah <strong>usulan, belum resmi</strong> — bukan target kebijakan.</span>
+      </div>
+    </section>
+
+    <!-- ZONA TENGAH: analisis tren tempora -->
+    <section class="zone zone-middle" aria-labelledby="zonaTengah">
+      <h2 id="zonaTengah" class="zone-title">Zona Tengah · Analisis Tren Temporal</h2>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>Tren Timbulan vs Terkelola (ton/tahun) <span id="chartCaptionTimbulan" class="hint"></span></h3>
+          <div class="legend" id="legendTimbulan"></div>
+        </div>
+        <svg id="chartTimbulan" class="chart" role="img" aria-label="Line chart tren timbulan dan terkelola per tahun"></svg>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head">
+            <h3>Sampah Terkelola per Tahun (%)</h3>
+            <div class="legend" id="legendKelola"></div>
+          </div>
+          <svg id="chartKelola" class="chart chart-small" role="img" aria-label="Bar chart persen terkelola per tahun dengan ambang usulan"></svg>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Pertumbuhan Kumulatif vs 2021 (indeks 2021 = 100)</h3>
+            <div class="legend" id="legendIndeks"></div>
+          </div>
+          <svg id="chartIndeks" class="chart chart-small" role="img" aria-label="Line chart dua seri: indeks timbulan dan penduduk"></svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ZONA BAWAH: breakdown komposisi -->
+    <section class="zone zone-bottom" aria-labelledby="zonaBawah">
+      <h2 id="zonaBawah" class="zone-title">Zona Bawah · Rincian Komposisi &amp; Kesenjangan</h2>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head">
+            <h3>Komposisi Sampah <span id="komposisiYearBadge" class="year-badge"></span></h3>
+            <label class="sr-only" for="komposisiYear">Tahun komposisi</label>
+            <select id="komposisiYear" class="inline-select" aria-label="Pilih tahun komposisi"></select>
+          </div>
+          <svg id="chartKomposisi" class="chart" role="img" aria-label="Horizontal bar chart komposisi sampah per kategori"></svg>
+          <p class="footnote">“Kayu Ranting” 2021–2024 tidak memiliki nilai (NA) pada sumber data dan <strong>tidak</strong> ditampilkan sebagai 0%. Komposisi 2025 totalnya 100%.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Kesenjangan Pengelolaan <span id="kesenjanganYearBadge" class="year-badge"></span></h3></div>
+          <div id="kesenjanganPanel" class="kesenjangan"></div>
+          <div class="card-head divider"><h3>Temuan Utama (CBQ)</h3></div>
+          <ul id="cbqList" class="cbq-list"></ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <aside id="detailsPanel" class="details-panel" hidden>
+    <div class="details-head">
+      <h2>Details on Demand · Sumber, Rumus &amp; Validasi</h2>
+      <button id="detailsClose" type="button" class="link-button">Tutup ✕</button>
+    </div>
+    <div class="details-grid">
+      <div>
+        <h3>Sumber &amp; lisensi</h3>
+        <ul id="sumberList"></ul>
+        <h3>Rumus ringkas</h3>
+        <ul class="formula">
+          <li>Terkelola = pengurangan + penanganan (diperiksa terhadap kolom sumber; <code>selisih_rumus ≈ 0</code>)</li>
+          <li>Belum terkelola = timbulan − terkelola</li>
+          <li>Rasio belum terkelola = belum terkelola / timbulan × 100</li>
+          <li>Per kapita = timbulan harian × 1.000 / penduduk (kg/orang/hari)</li>
+          <li>Pertumbuhan kumulatif = (nilai t / nilai 2021 − 1) × 100 (bukan year-on-year)</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Hasil validasi (<code>validasi_data.csv</code>)</h3>
+        <table class="validasi-table">
+          <thead><tr><th>Pemeriksaan</th><th>Status</th><th>Hasil</th></tr></thead>
+          <tbody id="validasiBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </aside>
+
+  <footer class="footer">
+    <span>Sumber: SIPSN/KLHK &amp; BPS (lihat README repo). Dataset bersih: DOI <a href="https://zenodo.org/records/24240544" target="_blank" rel="noopener">10.5281/zenodo.24240544</a> (akses berkas Restricted).</span>
+    <span>Prototipe dashboard · Kelompok 4 · Universitas Diponegoro · 2026</span>
+  </footer>
+
+  <script src="assets/data.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>

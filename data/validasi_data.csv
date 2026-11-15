@@ -1,0 +1,8 @@
+﻿pemeriksaan,status,hasil,kriteria
+Cakupan tahun timbulan/master,LULUS,"2021, 2022, 2023, 2024, 2025",Tahun 2021 sampai 2025 tersedia
+Kesesuaian timbulan antarfile,LULUS,5 pasangan tahun/periode cocok,"Nilai harian dan tahunan pada file timbulan sama dengan file capaian (toleransi 0,001)"
+Rekonsiliasi penduduk kota dan kecamatan,LULUS,5 kelompok tahun memiliki 16 kecamatan; selisih total diperiksa,Jumlah penduduk 16 kecamatan sama dengan total Kota Semarang pada tahun yang sama
+Rentang nilai komposisi,LULUS,Rentang 1.00–61.00,Nilai komposisi persen berada pada rentang 0 sampai 100
+Kelengkapan kategori komposisi,CATATAN,4 sel kategori kosong; rincian tersedia pada kelengkapan_komposisi.csv,Nilai kosong tetap NA dan tidak diubah menjadi nol
+Konsistensi rumus total terkelola,LULUS,Selisih maksimum 0.0000,"Terpenuhi bila selisih total terkelola dan pengurangan + penanganan tidak lebih dari 0,1 ton"
+Keterbandingan definisi capaian 2024–2025,PERLU TINJAU,Notebook sumber mencatat perubahan definisi pengelolaan pada 2025,Jangan menafsirkan perubahan angka sebagai perubahan kinerja sebelum definisi dan cakupan pelaporan diverifikasi
