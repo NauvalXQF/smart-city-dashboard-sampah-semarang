@@ -20,7 +20,8 @@
   </header>
 
   <div class="alert-banner" role="note">
-    <strong>Catatan keterbandingan:</strong> perubahan definisi/cakupan pelaporan 2024–2025 membuat perbandingan antartahun tidak setara. Hasil verifikasi: <code>validasi_data.csv</code> → “PERLU TINJAU”. Angka 2024–2025 adalah sinyal audit pencatatan, bukan evaluasi kausal kinerja lapangan.
+    <span><strong>Catatan keterbandingan:</strong> definisi/cakupan pelaporan 2024–2025 berbeda — angka adalah sinyal audit, bukan evaluasi kausal.</span>
+    <button type="button" class="banner-link" id="bannerDetails">Lihat detail →</button>
   </div>
 
   <main class="page">
@@ -46,6 +47,7 @@
           <div class="legend" id="legendTimbulan"></div>
         </div>
         <svg id="chartTimbulan" class="chart" role="img" aria-label="Line chart tren timbulan dan terkelola per tahun"></svg>
+        <p id="gapNote" class="gap-note"></p>
       </div>
 
       <div class="grid-2">
@@ -55,6 +57,7 @@
             <div class="legend" id="legendKelola"></div>
           </div>
           <svg id="chartKelola" class="chart chart-small" role="img" aria-label="Bar chart persen terkelola per tahun dengan ambang usulan"></svg>
+          <p class="threshold-footnote">Garis kuning putus-putus adalah <strong>ambang usulan</strong> (≥90% / 60–90% / &lt;60%), bukan target resmi atau kebijakan.</p>
         </div>
 
         <div class="card">
@@ -78,7 +81,11 @@
             <label class="sr-only" for="komposisiYear">Tahun komposisi</label>
             <select id="komposisiYear" class="inline-select" aria-label="Pilih tahun komposisi"></select>
           </div>
-          <svg id="chartKomposisi" class="chart" role="img" aria-label="Horizontal bar chart komposisi sampah per kategori"></svg>
+          <svg id="chartKomposisi" class="chart chart-komposisi" role="img" aria-label="Horizontal bar chart komposisi sampah per kategori"></svg>
+          <table class="komposisi-table" id="komposisiTable" aria-label="Tabel komposisi sampah">
+            <thead><tr><th>Kategori</th><th>Persen</th><th>Catatan</th></tr></thead>
+            <tbody></tbody>
+          </table>
           <p class="footnote">“Kayu Ranting” 2021–2024 tidak memiliki nilai (NA) pada sumber data dan <strong>tidak</strong> ditampilkan sebagai 0%. Komposisi 2025 totalnya 100%.</p>
         </div>
 

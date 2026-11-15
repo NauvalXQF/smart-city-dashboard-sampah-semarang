@@ -24,7 +24,11 @@
   function prevYear(y) { var i = DATA.years.indexOf(y); return i > 0 ? DATA.years[i - 1] : null; }
   function el(tag, attrs, parent, text) {
     var node = document.createElementNS(SVGNS, tag);
-    if (attrs) Object.keys(attrs).forEach(function (k) { node.setAttribute(k, attrs[k]); });
+    if (attrs) Object.keys(attrs).forEach(function (k) {
+      var v = attrs[k];
+      if (k === 'dataTip') node.setAttribute('data-tip', v);
+      else node.setAttribute(k, v);
+    });
     if (text !== undefined) node.textContent = text;
     if (parent) parent.appendChild(node);
     return node;
@@ -49,6 +53,52 @@
     var ticks = [];
     for (var v = lo; v <= hi + step * 1e-6; v += step) ticks.push(+v.toFixed(6));
     return { lo: lo, hi: hi, ticks: ticks, step: step };
+  }
+
+  // ---------- tooltip berbasis data-tip ----------
+  var tooltipEl = null;
+  function ensureTooltip() {
+    if (!tooltipEl) {
+      tooltipEl = document.createElement('div');
+      tooltipEl.className = 'tooltip';
+      tooltipEl.setAttribute('role', 'tooltip');
+      document.body.appendChild(tooltipEl);
+    }
+    return tooltipEl;
+  }
+  function tipHtml(raw) {
+    var tip = ensureTooltip();
+    var parts = String(raw).split('\n');
+    var title = parts.shift();
+    var rows = parts.map(function (p) {
+      var idx = p.indexOf(':');
+      var k = idx >= 0 ? p.slice(0, idx) : p;
+      var v = idx >= 0 ? p.slice(idx + 1).trim() : '';
+      return '<div class="tt-row"><span>' + k + '</span><span>' + v + '</span></div>';
+    }).join('');
+    tip.innerHTML = '<div class="tt-title">' + title + '</div>' + rows;
+    return tip;
+  }
+  function bindTooltips(root) {
+    var tip = ensureTooltip();
+    var move = function (e) {
+      var x = Math.min(window.innerWidth - 16, Math.max(16, e.clientX + 14));
+      var y = Math.min(window.innerHeight - 16, Math.max(16, e.clientY + 14));
+      tip.style.left = x + 'px'; tip.style.top = y + 'px';
+    };
+    root.addEventListener('mousemove', function (e) {
+      var t = e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
+      if (!t) { tip.classList.remove('visible'); return; }
+      tipHtml(t.getAttribute('data-tip'));
+      move(e);
+      tip.classList.add('visible');
+    });
+    root.addEventListener('mouseleave', function () { tip.classList.remove('visible'); });
+    root.addEventListener('focusin', function (e) {
+      var t = e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
+      if (t) { tipHtml(t.getAttribute('data-tip')); tip.style.left = '16px'; tip.style.top = '80px'; tip.classList.add('visible'); }
+    });
+    root.addEventListener('focusout', function () { tip.classList.remove('visible'); });
   }
 
   // generic line chart: series = [{name, color, values:[...]}], years as x
@@ -82,7 +132,12 @@
       el('path', { d: d.trim(), fill: 'none', stroke: s.color, 'stroke-width': 2.4, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
       s.values.forEach(function (v, i) {
         if (v === null) return;
-        el('circle', { cx: xs[i], cy: y(v), r: 3.4, fill: '#fff', stroke: s.color, 'stroke-width': 2 }, svg);
+        var tipValue = cfg.tipFormat ? cfg.tipFormat(v) : String(v);
+        el('circle', {
+          cx: xs[i], cy: y(v), r: 4.5, fill: '#fff', stroke: s.color, 'stroke-width': 2,
+          'tabindex': '0',
+          dataTip: s.name + '\nTahun: ' + DATA.years[i] + '\nNilai: ' + tipValue
+        }, svg);
       });
     });
   }
@@ -113,7 +168,11 @@
       var v = kpiAt(yr).persen_kelola;
       var st = statusFor(v);
       var cls = st === 'green' ? 'bar-green' : st === 'yellow' ? 'bar-yellow' : 'bar-red';
-      el('rect', { x: cx - bw / 2, y: y(v), width: bw, height: Math.max(0, P.t + ih - y(v)), rx: 3, 'class': cls }, svg);
+      el('rect', {
+        x: cx - bw / 2, y: y(v), width: bw, height: Math.max(0, P.t + ih - y(v)), rx: 3, 'class': cls,
+        'tabindex': '0',
+        dataTip: 'Terkelola ' + yr + '\nPersen: ' + idNum(v, 2) + '%\nStatus: ' + statusLabel(st)
+      }, svg);
       el('text', { x: cx, y: y(v) - 5, 'text-anchor': 'middle', 'class': 'value-label' }, svg, idNum(v, 2) + '%');
       el('text', { x: cx, y: H - 8, 'text-anchor': 'middle', 'class': 'tick' }, svg, String(yr));
     });
@@ -146,10 +205,19 @@
       el('text', { x: P.l - 6, y: cy + 3.5, 'text-anchor': 'end', 'class': 'tick' }, svg, r.kategori);
       var isFocus = (r.kategori === 'Sisa Makanan' || r.kategori === 'Plastik');
       if (r.persen === null) {
-        el('rect', { x: P.l, y: cy - barH / 2, width: iw * 0.32, height: barH, rx: 3, 'class': 'bar-na' }, svg);
+        el('rect', {
+          x: P.l, y: cy - barH / 2, width: iw * 0.32, height: barH, rx: 3, 'class': 'bar-na',
+          'tabindex': '0',
+          dataTip: r.kategori + ' ' + tahun + '\nStatus: NA — tidak tersedia di sumber'
+        }, svg);
         el('text', { x: P.l + iw * 0.32 + 8, y: cy + 3.5, 'class': 'na-note' }, svg, 'NA — tidak tersedia di sumber');
       } else {
-        el('rect', { x: P.l, y: cy - barH / 2, width: Math.max(2, x(r.persen) - P.l), height: barH, rx: 3, 'class': isFocus ? 'bar-focus' : 'bar-default' }, svg);
+        el('rect', {
+          x: P.l, y: cy - barH / 2, width: Math.max(2, x(r.persen) - P.l), height: barH, rx: 3,
+          'class': isFocus ? 'bar-focus' : 'bar-default',
+          'tabindex': '0',
+          dataTip: r.kategori + ' ' + tahun + '\nKomposisi: ' + idNum(r.persen, 2) + '%' + (isFocus ? '\nFokus CBQ2' : '')
+        }, svg);
         el('text', { x: x(r.persen) + 6, y: cy + 3.5, 'class': 'value-label' }, svg, idNum(r.persen, 1) + '%');
       }
     });
@@ -214,13 +282,21 @@
         { name: 'Terkelola (ton)', color: C.terkelola, values: DATA.years.map(function (y) { return kpiAt(y).terkelola_tahunan_ton; }) }
       ],
       forceZero: true,
-      tickFormat: function (t) { return idNum(t / 1000, 0) + ' rb'; }
+      tickFormat: function (t) { return idNum(t / 1000, 0) + ' rb'; },
+      tipFormat: function (v) { return idNum(v, 2) + ' ton'; }
     });
     renderLegend('legendTimbulan', [
       { name: 'Timbulan (ribu ton)', color: C.timbulan },
       { name: 'Terkelola (ribu ton)', color: C.terkelola }
     ]);
     byId('chartCaptionTimbulan').textContent = '· sumbu Y: ribu ton (0 sebagai baseline)';
+    var peak = DATA.years.reduce(function (a, y) { return kpiAt(y).belum_terkelola_tahunan_ton > kpiAt(a).belum_terkelola_tahunan_ton ? y : a; }, DATA.years[0]);
+    var py = prevYear(peak);
+    var gapNow = kpiAt(peak).belum_terkelola_tahunan_ton;
+    var gapTxt = 'Kesenjangan terbesar: <strong>' + peak + '</strong> — ' + idNum(gapNow, 0) + ' ton belum terkelola';
+    if (py) gapTxt += ' (vs ' + py + ': ' + idNum(kpiAt(py).belum_terkelola_tahunan_ton, 0) + ' ton)';
+    gapTxt += '. Sumbu 0–500 rb membuat selisih visual menyusut; angka kanan lebih jujur daripada skala grafik.';
+    byId('gapNote').innerHTML = gapTxt;
   }
 
   function renderIndeksChart() {
@@ -231,7 +307,8 @@
         { name: 'Indeks penduduk', color: C.penduduk, values: DATA.years.map(function (y) { return (kpiAt(y).jumlah_penduduk_jiwa / base.jumlah_penduduk_jiwa) * 100; }) }
       ],
       forceZero: false,
-      tickFormat: function (t) { return idNum(t, 0); }
+      tickFormat: function (t) { return idNum(t, 0); },
+      tipFormat: function (v) { return idNum(v, 2) + ' (2021 = 100)'; }
     });
     renderLegend('legendIndeks', [
       { name: 'Timbulan (2021 = 100)', color: C.timbulan },
@@ -247,8 +324,30 @@
     ]);
   }
 
+  function renderKomposisiTable(tahun) {
+    var tbody = document.querySelector('#komposisiTable tbody');
+    if (!tbody) return;
+    var rows = DATA.komposisi.filter(function (r) { return r.tahun === tahun; });
+    var focus = { 'Sisa Makanan': true, 'Plastik': true };
+    var ordered = rows.slice().sort(function (a, b) {
+      if (a.persen === null && b.persen === null) return 0;
+      if (a.persen === null) return 1;
+      if (b.persen === null) return -1;
+      return b.persen - a.persen;
+    });
+    tbody.innerHTML = ordered.map(function (r) {
+      var isFocus = !!focus[r.kategori];
+      if (r.persen === null) {
+        return '<tr class="row-na"><td>' + r.kategori + '<span class="chip-na">NA</span></td><td class="num">—</td><td>Tidak tersedia di sumber (2021–2024)</td></tr>';
+      }
+      var note = isFocus ? 'Fokus CBQ2 (sisa makanan + plastik)' : '—';
+      return '<tr class="' + (isFocus ? 'row-focus' : '') + '"><td>' + r.kategori + (isFocus ? '<span class="chip-focus">Fokus CBQ2</span>' : '') + '</td><td class="num">' + idNum(r.persen, 2) + '%</td><td>' + note + '</td></tr>';
+    }).join('');
+  }
+
   function renderKomposisiSection() {
     renderKomposisiChart(byId('chartKomposisi'), state.komposisiYear);
+    renderKomposisiTable(state.komposisiYear);
     byId('komposisiYearBadge').textContent = state.komposisiYear;
   }
 
@@ -355,9 +454,19 @@
     });
 
     var panel = byId('detailsPanel');
+    var openPanel = function () {
+      panel.hidden = false;
+      byId('detailsToggle').setAttribute('aria-expanded', 'true');
+      byId('detailsClose').focus();
+    };
     byId('detailsToggle').addEventListener('click', function () {
       panel.hidden = !panel.hidden;
       this.setAttribute('aria-expanded', String(!panel.hidden));
+    });
+    var bannerBtn = byId('bannerDetails');
+    if (bannerBtn) bannerBtn.addEventListener('click', openPanel);
+    ['chartTimbulan', 'chartKelola', 'chartIndeks', 'chartKomposisi'].forEach(function (id) {
+      bindTooltips(byId(id));
     });
     byId('detailsClose').addEventListener('click', function () {
       panel.hidden = true;

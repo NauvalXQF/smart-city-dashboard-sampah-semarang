@@ -184,4 +184,58 @@ body {
 .footer { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding: 0.6rem 1.5rem 1rem; color: var(--muted); font-size: 0.72rem; border-top: 1px solid var(--line); max-width: 1280px; margin: 0 auto; }
 .footer a { color: var(--blue); }
 
+/* ---------- iterasi polish (P0/P1) ---------- */
+:root {
+  --ink-soft: #1b2f47;         /* warna angka utama: sedikit lebih hangat dari --ink */
+  --amber: #b45309;            /* aksen audit/peringatan (bukan warna status resmi) */
+  --amber-bg: #fdf0d5;
+  --focus: #1f6feb;
+}
+
+:focus-visible {
+  outline: 2.5px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.kpi-value, .kpi-delta, .gap-note, .komposisi-table, .kesenjangan { font-variant-numeric: tabular-nums; }
+
+.alert-banner { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; }
+.banner-link { background: transparent; border: none; color: #7a5200; font: inherit; font-size: 0.78rem; font-weight: 650; cursor: pointer; padding: 0.1rem 0.25rem; border-radius: 6px; white-space: nowrap; text-decoration: underline; }
+.banner-link:hover { color: #4a3300; }
+
+.gap-note { font-size: 0.78rem; color: var(--ink-soft); background: #f6f9ff; border: 1px dashed #bcd0ea; border-radius: 8px; padding: 0.4rem 0.6rem; margin: 0.4rem 0 0; }
+.gap-note strong { color: var(--blue); }
+
+.threshold-footnote { font-size: 0.72rem; color: var(--amber); background: var(--amber-bg); border: 1px dashed #e3c878; border-radius: 8px; padding: 0.3rem 0.5rem; margin: 0.4rem 0 0; }
+
+.chart-komposisi { height: 220px; }
+.komposisi-table { width: 100%; border-collapse: collapse; font-size: 0.74rem; margin-top: 0.45rem; }
+.komposisi-table th, .komposisi-table td { border: 1px solid var(--line); padding: 0.25rem 0.4rem; text-align: left; }
+.komposisi-table th { background: #f2f5f9; text-transform: uppercase; letter-spacing: 0.4px; font-size: 0.66rem; color: var(--muted); }
+.komposisi-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.komposisi-table .row-na td { color: var(--muted); font-style: italic; background: #fafbfd; }
+.komposisi-table .row-focus td { font-weight: 650; }
+.komposisi-table .chip-focus { display: inline-block; font-size: 0.62rem; background: var(--blue-soft); color: var(--blue); border-radius: 999px; padding: 0 0.4rem; margin-left: 0.3rem; font-style: normal; vertical-align: 1px; }
+.komposisi-table .chip-na { display: inline-block; font-size: 0.62rem; background: #eef1f5; color: var(--muted); border-radius: 999px; padding: 0 0.4rem; margin-left: 0.3rem; font-style: normal; }
+.komposisi-table tr:hover td { background: #f7faff; }
+.komposisi-table .row-na:hover td { background: #f2f4f8; }
+
+.delta-up::before { content: "▲ "; font-size: 0.68em; vertical-align: 1px; }
+.delta-down::before { content: "▼ "; font-size: 0.68em; vertical-align: 1px; }
+.delta-flat::before { content: "■ "; font-size: 0.62em; vertical-align: 1px; opacity: 0.6; }
+
+.tooltip {
+  position: fixed; z-index: 30; pointer-events: none;
+  background: #0e2a47; color: #eaf2fb; font-size: 0.75rem; line-height: 1.35;
+  border-radius: 8px; padding: 0.35rem 0.5rem; box-shadow: 0 4px 16px rgba(10,25,41,.35);
+  opacity: 0; transform: translateY(4px); transition: opacity .12s ease, transform .12s ease;
+  max-width: 260px;
+}
+.tooltip.visible { opacity: 1; transform: translateY(0); }
+.tooltip .tt-title { font-weight: 700; color: #fff; }
+.tooltip .tt-row { display: flex; justify-content: space-between; gap: 0.6rem; }
+
+.chart [data-tip] { cursor: pointer; }
+
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
