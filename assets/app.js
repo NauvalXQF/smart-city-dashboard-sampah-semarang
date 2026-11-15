@@ -28,7 +28,7 @@
     focus: '#1f6feb',
     plastik: '#b45309',
     other: '#a9bacb',
-    donutTer: '#1f6feb',
+    donutTer: '#0f766e',
     donutBelum: '#c6d0da'
   };
 

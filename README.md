@@ -70,9 +70,9 @@ Ambang ini **bukan target resmi / kebijakan**. Bar 2024–2025 sengaja memakai p
 - Chart SVG dirender ulang mengikuti lebar kontainer; label sumbu tidak lagi mengecil menjadi teks 4–6 px pada layar sempit.
 - Setiap mark chart memiliki nama aksesibel, dapat difokuskan dengan keyboard, dan tooltip visual. Tabel komposisi menjadi alternatif data yang setara.
 - Panel *Detail & sumber* memakai `role="dialog"`, `aria-modal`, focus trap, tombol Escape, backdrop, dan pengembalian fokus ke pemicu.
-- Uji axe (WCAG 2.1 AA + best-practice) pada 1280 px, 360 px, dan dialog terbuka: **0 violation**.
+- Uji axe (WCAG 2.1 A/AA + best-practice, axe-core 4.12.1) pada 1280 px dan 360 px serta dialog terbuka: **0 violation, 1 incomplete**. Temuan `aria-prohibited-attr` pada `#scorecards` sudah diperbaiki (ditambah `role="region"`) dan terkonfirmasi hilang pada uji ulang; tersisa **`color-contrast` (96 node, perlu review manual, bukan violation)** — mayoritas teks putih di atas latar navy/header yang secara visual kontras tinggi namun ditandai axe untuk verifikasi manual. Belum divalidasi dengan pembaca layar sungguhan.
 - Penandaan 2024–2025 tidak hanya lewat warna: ada teks “perlu tinjau”, chip, pola arsir, dan catatan.
-- Layout cetak A4 memakai 2 halaman pada data 2025 (ringkasan + tren, lalu komposisi + temuan). Chart dirender ulang mengikuti lebar cetak agar label tetap terbaca, dan kartu tidak terpotong antarhalaman.
+- Layout cetak A4 diharapkan 2 halaman pada data 2025 (diuji dengan Edge headless `--print-to-pdf`); jumlah halaman dapat berbeda menurut tahun/browser. Chart dirender ulang mengikuti lebar cetak.
 
 ## Publikasi dataset
 
