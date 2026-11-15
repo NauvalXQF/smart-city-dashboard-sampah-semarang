@@ -5,13 +5,10 @@ Jalankan dari root repo:  python tools/verify_dashboard.py
 """
 
 import csv
-import math
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
-
-TOL = 1e-4
 
 
 def rows(name):
@@ -35,23 +32,26 @@ for t, r in sorted(master.items()):
     belum = f(r["belum_terkelola_tahunan_ton"])
     peng = f(r["pengurangan_tahunan_ton"])
     penh = f(r["penanganan_tahunan_ton"])
+    selisih = f(r["selisih_rumus"])
     check = timbulan - terkelola
     ok1 = abs(check - belum) < 1e-4
     ok2 = abs((peng + penh) - terkelola) < 1e-4
-    ok3 = abs(f(r["selisih_rumus"])) < 1e-6 or abs(f(r["selisih_rumus"])) < 1e-6
+    ok3 = abs(selisih) < 1e-6
     rasio = belum / timbulan * 100
-    rasio_master = belum / timbulan * 100
     print(f"{t}: belum(timbulan-terkelola)={check:.6f} vs kolom={belum:.6f} -> {'OK' if ok1 else 'GAGAL'} | "
           f"peng+penh={peng+penh:.6f} vs terkelola={terkelola:.6f} -> {'OK' if ok2 else 'GAGAL'} | "
-          f"rasio belum={rasio:.2f}% | selisih_rumus={f(r['selisih_rumus']):.3e}")
-    fails += 0 if (ok1 and ok2) else 1
+          f"selisih_rumus={selisih:.3e} -> {'OK' if ok3 else 'GAGAL'} | "
+          f"rasio belum={rasio:.2f}%")
+    fails += 0 if (ok1 and ok2 and ok3) else 1
 
-print("\n== Indeks vs 2021 (dashboard CBQ5) ==")
+print("\n== Indeks vs 2021 (dashboard) ==")
 base_t = f(master[2021]["timbulan_tahunan_ton"])
 base_p = f(master[2021]["jumlah_penduduk_jiwa"])
 for t in sorted(master):
     it = f(master[t]["timbulan_tahunan_ton"]) / base_t * 100
     ip = f(master[t]["jumlah_penduduk_jiwa"]) / base_p * 100
+    if t == 2021 and (abs(it - 100) > 1e-9 or abs(ip - 100) > 1e-9):
+        fails += 1
     print(f"{t}: indeks timbulan={it:.2f} | indeks penduduk={ip:.2f} | tumbuh_sampah(CSV, %)={f(master[t]['tumbuh_sampah']):.4f} | tumbuh_penduduk(CSV, %)={f(master[t]['tumbuh_penduduk']):.4f}")
 
 print("\n== Komposisi: NA & total ==")
@@ -60,7 +60,10 @@ for t in sorted({int(r["tahun"]) for r in long}):
     vals = [f(r["komposisi_persen"]) for r in rs]
     na = [r["kategori_sampah"] for r, v in zip(rs, vals) if v is None]
     tot = sum(v for v in vals if v is not None)
-    print(f"{t}: sum(terisi)={tot:.2f}% | NA={na}")
+    total_ok = abs(tot - 100) < 0.01
+    if not total_ok:
+        fails += 1
+    print(f"{t}: sum(terisi)={tot:.2f}% -> {'OK' if total_ok else 'GAGAL'} | NA={na}")
 
 print("\n== Cek dashboard-specific derived ==")
 for t in sorted(master):
