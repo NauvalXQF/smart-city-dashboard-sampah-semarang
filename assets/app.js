@@ -56,16 +56,6 @@
 
   function isReviewYear(year) { return BREAK_YEARS.indexOf(Number(year)) !== -1; }
 
-  function statusFor(pct) { return pct >= 90 ? 'green' : pct >= 60 ? 'yellow' : 'red'; }
-
-  function statusLabel(status) {
-    return status === 'green' ? '≥90% (usulan)' : status === 'yellow' ? '60–90% (usulan)' : '<60% (usulan)';
-  }
-
-  function reviewText() {
-    return 'Perlu tinjau: definisi/cakupan 2024–2025 berbeda dari periode sebelumnya.';
-  }
-
   function niceScale(min, max, count, forceZero) {
     var lo0 = forceZero ? 0 : min;
     var hi0 = max;
@@ -232,95 +222,85 @@
     });
   }
 
-  // ---------- scorecards ----------
-  function makeDelta(now, old, options) {
-    var opts = options || {};
-    var py = prevYear(state.year);
-    if (isReviewYear(state.year)) {
-      return { text: 'tidak sebanding', cls: 'delta-review' };
-    }
-    if (!py || old === null || old === undefined || now === null || now === undefined) {
-      return { text: 'tahun dasar', cls: 'delta-flat' };
-    }
-    var diff = now - old;
-    if (Math.abs(diff) < 1e-9) return { text: 'vs ' + py + ': tetap', cls: 'delta-flat' };
-    var good = opts.invert ? diff < 0 : diff > 0;
-    var cls = opts.neutral ? 'delta-flat' : good ? 'delta-up' : 'delta-down';
-    var digits = opts.digits === undefined ? 0 : opts.digits;
-    return {
-      text: 'vs ' + py + ': ' + (diff > 0 ? '+' : '−') + idNum(Math.abs(diff), digits) + (opts.unit || ''),
-      cls: cls
-    };
+  // ---------- ringkasan ----------
+  function knownComposition(year) {
+    return compositionRowsFor(year).filter(function (row) { return row.persen !== null; })
+      .sort(function (a, b) { return b.persen - a.persen; });
   }
 
-  function renderScorecards() {
+  function renderHero() {
     var year = state.year;
     var cur = kpiAt(year);
-    var py = prevYear(year);
-    var prev = py ? kpiAt(py) : null;
     var review = isReviewYear(year);
-    var status = statusFor(cur.persen_kelola);
-    var statusText = statusLabel(status);
+    var total = cur.timbulan_tahunan_ton;
+    var terkelola = cur.terkelola_tahunan_ton;
+    var belum = cur.belum_terkelola_tahunan_ton;
+    var pct = Math.max(0, Math.min(100, cur.persen_kelola));
+    var daily = total / 365;
+    var box = byId('heroSummary');
+    if (!box) return;
 
-    var cards = [
-      {
-        label: 'Terkelola',
-        value: idNum(cur.persen_kelola, 2) + '%',
-        unit: 'dari timbulan · ambang usulan',
-        delta: makeDelta(cur.persen_kelola, prev && prev.persen_kelola, { unit: ' pp', digits: 2 }),
-        hero: true,
-        status: review ? null : status,
-        chip: review ? 'perlu tinjau' : statusText
-      },
-      {
-        label: 'Timbulan Tahunan',
-        value: idNum(cur.timbulan_tahunan_ton, 0),
-        unit: 'ton/tahun',
-        delta: makeDelta(cur.timbulan_tahunan_ton, prev && prev.timbulan_tahunan_ton, { unit: ' ton', digits: 0, neutral: true })
-      },
-      {
-        label: 'Terkelola (ton)',
-        value: idNum(cur.terkelola_tahunan_ton, 0),
-        unit: 'ton/tahun',
-        delta: makeDelta(cur.terkelola_tahunan_ton, prev && prev.terkelola_tahunan_ton, { unit: ' ton', digits: 0 })
-      },
-      {
-        label: 'Belum Terkelola',
-        value: idNum(cur.belum_terkelola_tahunan_ton, 0),
-        unit: 'ton/tahun',
-        delta: makeDelta(cur.belum_terkelola_tahunan_ton, prev && prev.belum_terkelola_tahunan_ton, { unit: ' ton', digits: 0, invert: true })
-      },
-      {
-        label: 'Timbulan per Kapita',
-        value: idNum(cur.timbulan_kg_per_orang_hari, 3),
-        unit: 'kg/orang/hari',
-        delta: makeDelta(cur.timbulan_kg_per_orang_hari, prev && prev.timbulan_kg_per_orang_hari, { unit: ' kg/orang/hari', digits: 3, invert: true })
-      },
-      {
-        label: 'Daur ulang + bahan baku*',
-        value: idNum(cur.persen_recycling_rate, 2) + '%',
-        unit: review ? 'dari timbulan · cek definisi' : 'dari timbulan',
-        delta: makeDelta(cur.persen_recycling_rate, prev && prev.persen_recycling_rate, { unit: ' pp', digits: 2, neutral: true }),
-        chip: review ? 'verifikasi' : ''
-      }
-    ];
-
-    byId('scorecards').innerHTML = cards.map(function (card) {
-      var classes = 'scorecard' +
-        (card.hero ? ' hero' : '') +
-        (review ? ' review' : '') +
-        (card.status ? ' status-' + card.status : '');
-      return '<div class="' + classes + '">' +
-        '<div class="kpi-label">' + escapeHtml(card.label) +
-          (card.chip ? ' <span class="kpi-chip">' + escapeHtml(card.chip) + '</span>' : '') +
+    box.className = 'hero-summary' + (review ? ' review' : '');
+    box.innerHTML =
+      '<div class="hero-main">' +
+        '<div class="hero-topline"><span class="hero-eyebrow">Tahun ' + year + '</span>' +
+          (review ? '<span class="hero-chip">perlu tinjau</span>' : '') +
         '</div>' +
-        '<div class="kpi-value">' + escapeHtml(card.value) + '</div>' +
-        '<div class="kpi-unit">' + escapeHtml(card.unit) + '</div>' +
-        '<div class="kpi-delta ' + card.delta.cls + '">' + escapeHtml(card.delta.text) + '</div>' +
+        '<div class="hero-headline"><strong class="hero-number">' + idNum(pct, 1) + '%</strong>' +
+          '<span class="hero-title">sampah tercatat terkelola</span></div>' +
+        '<p class="hero-copy">Dari total <strong>' + idNum(total, 0) + ' ton</strong> sampah, sekitar <strong>' +
+          idNum(terkelola, 0) + ' ton</strong> tercatat terkelola. <strong>' + idNum(belum, 0) +
+          ' ton</strong> belum tercatat terkelola.</p>' +
+        '<div class="progress-track" role="img" aria-label="Tahun ' + year + ': ' + idNum(pct, 1) +
+          ' persen tercatat terkelola, ' + idNum(100 - pct, 1) + ' persen belum tercatat">' +
+          '<span class="progress-done" style="width:' + pct.toFixed(2) + '%"></span>' +
+        '</div>' +
+        '<div class="progress-legend">' +
+          '<span><i class="dot dot-terkelola"></i>Tercatat terkelola <strong>' + idNum(pct, 1) + '%</strong></span>' +
+          '<span><i class="dot dot-gray"></i>Belum tercatat <strong>' + idNum(100 - pct, 1) + '%</strong></span>' +
+        '</div>' +
+        '<p class="hero-explain">“Tercatat terkelola” berarti sampah masuk jalur pengurangan atau penanganan dalam laporan. Bukan berarti seluruh sampah sudah hilang dari lingkungan.</p>' +
+      '</div>' +
+      '<div class="hero-side">' +
+        '<div class="hero-stat"><span>Sampah dihasilkan</span><strong>' + idNum(total, 0) +
+          ' <small>ton/tahun</small></strong><em>≈ ' + idNum(daily, 0) + ' ton/hari</em></div>' +
+        '<div class="hero-stat"><span>Per orang</span><strong>' + idNum(cur.timbulan_kg_per_orang_hari, 2) +
+          ' <small>kg/hari</small></strong><em>≈ ' + idNum(cur.timbulan_kg_per_orang_hari * 30.44, 0) +
+          ' kg/bulan</em></div>' +
       '</div>';
-    }).join('');
 
-    renderYearContext(review, py);
+    renderYearContext(review, prevYear(year));
+  }
+
+  function renderKeyFacts() {
+    var known = knownComposition(state.year);
+    var box = byId('keyFacts');
+    if (!box || !known.length) return;
+    var top1 = known[0];
+    var top2 = known[1] || { kategori: '', persen: 0 };
+    var focusSum = top1.persen + top2.persen;
+    var totals = DATA.years.map(function (year) { return kpiAt(year).timbulan_tahunan_ton; });
+    var min = Math.min.apply(null, totals) / 1000;
+    var max = Math.max.apply(null, totals) / 1000;
+
+    box.innerHTML =
+      '<article class="fact-card">' +
+        '<span class="fact-kicker">Isi sampah ' + state.year + '</span>' +
+        '<strong>' + escapeHtml(top1.kategori) + ' ' + idNum(top1.persen, 1) + '%</strong>' +
+        '<p>Disusul ' + escapeHtml(top2.kategori) + ' ' + idNum(top2.persen, 1) +
+          '%. Keduanya mencakup ' + idNum(focusSum, 1) + '% dari total sampah.</p>' +
+      '</article>' +
+      '<article class="fact-card">' +
+        '<span class="fact-kicker">Jumlah sampah</span>' +
+        '<strong>Relatif stabil</strong>' +
+        '<p>Rentang 2021–2025: ' + idNum(min, 0) + '–' + idNum(max, 0) +
+          ' ribu ton per tahun.</p>' +
+      '</article>' +
+      '<article class="fact-card">' +
+        '<span class="fact-kicker">Cakupan data</span>' +
+        '<strong>Agregat kota</strong>' +
+        '<p>Data tahunan, belum per kecamatan. Angka berasal dari laporan, bukan pengukuran lapangan.</p>' +
+      '</article>';
   }
 
   function renderYearContext(review, py) {
@@ -329,14 +309,67 @@
     note.className = 'year-context-note' + (review ? ' review' : '');
     if (review) {
       note.innerHTML = '<strong>Tahun ' + state.year + ' perlu tinjau.</strong> ' +
-        'Definisi/cakupan 2024–2025 berbeda dari 2021–2023, sehingga delta antar-tahun tidak ditampilkan. ' +
-        'Pembanding terakhir yang sebanding: ' + escapeHtml(META.comparable_last_year || '—') + '. ' +
-        'Angka tetap ditampilkan sebagai sinyal audit, bukan evaluasi kausal.';
+        'Cara mencatat 2024–2025 berbeda dari tahun sebelumnya, jadi angka ini tidak bisa dibandingkan dengan ' +
+        escapeHtml(py) + '. Pembanding terakhir yang setara: ' + escapeHtml(META.comparable_last_year || '—') +
+        '. Angka tetap ditampilkan, tetapi bukan penilaian kinerja.';
     } else if (!py) {
-      note.innerHTML = '<strong>Tahun dasar ' + state.year + '.</strong> Tidak ada tahun sebelumnya; nilai 2021 menjadi basis indeks.';
+      note.innerHTML = '<strong>Tahun dasar ' + state.year + '.</strong> Belum ada tahun sebelumnya untuk pembanding.';
     } else {
-      note.innerHTML = '<strong>Tahun ' + state.year + ' sebanding dengan ' + py + '.</strong> Delta di bawah dihitung terhadap ' + py + '.';
+      note.innerHTML = '<strong>Tahun ' + state.year + ' sebanding dengan ' + py +
+        '.</strong> Angka bisa dibandingkan langsung dengan tahun sebelumnya.';
     }
+  }
+
+  function renderReadingGuide() {
+    var box = byId('readingGuide');
+    if (!box) return;
+    var year = state.year;
+    var cur = kpiAt(year);
+    var py = prevYear(year);
+    var prev = py ? kpiAt(py) : null;
+    var review = isReviewYear(year);
+    var items = [];
+
+    if (review) {
+      items.push('<li><strong>Yang terlihat:</strong> ' + idNum(cur.persen_kelola, 1) +
+        '% sampah tercatat terkelola pada ' + year + '.</li>');
+      items.push('<li><strong>Jangan disimpulkan:</strong> angka ' + year +
+        ' tidak bisa dibandingkan dengan tahun sebelumnya karena cara mencatatnya berubah. ' +
+        '<button type="button" class="text-link" data-open-details>Mengapa?</button></li>');
+      items.push('<li><strong>Yang tetap bisa dibaca:</strong> jumlah sampah, isi sampah, dan sampah per orang.</li>');
+    } else if (py && prev) {
+      var prevPct = prev.persen_kelola;
+      var relation;
+      if (cur.persen_kelola > prevPct) {
+        relation = 'naik dari ' + idNum(prevPct, 1) + '% ke ' + idNum(cur.persen_kelola, 1) + '%';
+      } else if (cur.persen_kelola < prevPct) {
+        relation = 'turun dari ' + idNum(prevPct, 1) + '% ke ' + idNum(cur.persen_kelola, 1) + '%';
+      } else {
+        relation = 'tetap di ' + idNum(cur.persen_kelola, 1) + '%';
+      }
+      items.push('<li><strong>Tahun ' + year + ':</strong> ' + idNum(cur.persen_kelola, 1) +
+        '% sampah tercatat terkelola.</li>');
+      items.push('<li><strong>Dibanding ' + py + ':</strong> ' + relation + '.</li>');
+      items.push('<li><strong>Jumlah sampah:</strong> ' + idNum(cur.timbulan_tahunan_ton, 0) +
+        ' ton, relatif stabil.</li>');
+    } else {
+      items.push('<li><strong>Tahun dasar:</strong> ' + year + ' menjadi pembanding untuk tahun berikutnya.</li>');
+      items.push('<li><strong>Yang terlihat:</strong> ' + idNum(cur.persen_kelola, 1) +
+        '% sampah tercatat terkelola.</li>');
+      items.push('<li><strong>Jumlah sampah:</strong> ' + idNum(cur.timbulan_tahunan_ton, 0) + ' ton.</li>');
+    }
+    items.push('<li><strong>Ingat:</strong> angka berasal dari laporan, bukan pengukuran lapangan.</li>');
+    box.innerHTML = '<ul>' + items.join('') + '</ul>';
+  }
+
+  function renderKelolaNote() {
+    var note = byId('kelolaNote');
+    if (!note) return;
+    var cur = kpiAt(state.year);
+    var review = isReviewYear(state.year);
+    note.innerHTML = '<strong>Tahun ' + state.year + ':</strong> ' + idNum(cur.persen_kelola, 1) +
+      '% sampah tercatat terkelola. ' +
+      (review ? 'Angka ini perlu tinjau; bukan penilaian kinerja.' : 'Angka ini bisa dibandingkan dengan tahun sebelumnya.');
   }
 
   // ---------- line chart ----------
@@ -463,15 +496,23 @@
     }
 
     config.series.forEach(function (series, seriesIndex) {
-      var path = '';
+      // Segmen yang menyentuh 2024–2025 dibuat putus-putus agar tidak
+      // dibaca sebagai kelanjutan tren yang sebanding.
       series.values.forEach(function (value, index) {
-        if (value === null || value === undefined || !isFinite(value)) return;
-        path += (path === '' ? 'M' : 'L') + xs[index].toFixed(2) + ' ' + y(value).toFixed(2) + ' ';
+        if (index === 0) return;
+        var prevValue = series.values[index - 1];
+        if (value === null || value === undefined || !isFinite(value) ||
+            prevValue === null || prevValue === undefined || !isFinite(prevValue)) return;
+        var segmentReview = isReviewYear(DATA.years[index]) || isReviewYear(DATA.years[index - 1]);
+        el('line', {
+          x1: xs[index - 1], y1: y(prevValue), x2: xs[index], y2: y(value),
+          stroke: series.color, 'stroke-width': 2.4,
+          'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+          'stroke-dasharray': segmentReview ? '5 4' : null,
+          opacity: segmentReview ? 0.8 : 1,
+          'aria-hidden': 'true'
+        }, svg);
       });
-      el('path', {
-        d: path.trim(), fill: 'none', stroke: series.color, 'stroke-width': 2.4,
-        'stroke-linejoin': 'round', 'stroke-linecap': 'round', 'aria-hidden': 'true'
-      }, svg);
 
       series.values.forEach(function (value, index) {
         if (value === null || value === undefined || !isFinite(value)) return;
@@ -504,13 +545,14 @@
 
   function renderTimbulanChart() {
     var cur = kpiAt(state.year);
+    var review = isReviewYear(state.year);
     renderLineChart(byId('chartTimbulan'), {
       height: 280,
       forceZero: true,
       gapArea: true,
       series: [
-        { name: 'Timbulan', color: C.timbulan, values: DATA.years.map(function (year) { return kpiAt(year).timbulan_tahunan_ton; }) },
-        { name: 'Terkelola', color: C.terkelola, values: DATA.years.map(function (year) { return kpiAt(year).terkelola_tahunan_ton; }) }
+        { name: 'Sampah dihasilkan', color: C.timbulan, values: DATA.years.map(function (year) { return kpiAt(year).timbulan_tahunan_ton; }) },
+        { name: 'Tercatat terkelola', color: C.terkelola, values: DATA.years.map(function (year) { return kpiAt(year).terkelola_tahunan_ton; }) }
       ],
       tickFormat: function (value) { return idNum(value / 1000, 0) + ' rb'; },
       tipFormat: function (value) { return idNum(value, 2) + ' ton'; },
@@ -518,15 +560,11 @@
     });
 
     var ratio = cur.timbulan_tahunan_ton ? (cur.belum_terkelola_tahunan_ton / cur.timbulan_tahunan_ton) * 100 : null;
-    var peakYear = DATA.years.reduce(function (best, year) {
-      return kpiAt(year).belum_terkelola_tahunan_ton > kpiAt(best).belum_terkelola_tahunan_ton ? year : best;
-    }, DATA.years[0]);
-    var peak = kpiAt(peakYear);
-    var peakRatio = peak.timbulan_tahunan_ton ? (peak.belum_terkelola_tahunan_ton / peak.timbulan_tahunan_ton) * 100 : null;
-    var text = 'Tahun <strong>' + state.year + '</strong>: <strong>' + idNum(cur.belum_terkelola_tahunan_ton, 0) +
-      ' ton</strong> belum terkelola (' + idNum(ratio, 2) + '% dari timbulan). Terbesar: <strong>' + peakYear +
-      '</strong> — ' + idNum(peak.belum_terkelola_tahunan_ton, 0) + ' ton (' + idNum(peakRatio, 2) + '%).';
-    if (BREAK_YEARS.length) text += ' Latar abu-abu menandai periode yang perlu tinjau; selisih 2024–2025 tidak sebanding dengan 2021–2023.';
+    var text = 'Tahun <strong>' + state.year + '</strong>: <strong>' + idNum(cur.timbulan_tahunan_ton, 0) +
+      ' ton</strong> sampah dihasilkan; <strong>' + idNum(cur.terkelola_tahunan_ton, 0) +
+      ' ton</strong> tercatat terkelola. Selisih <strong>' + idNum(cur.belum_terkelola_tahunan_ton, 0) +
+      ' ton</strong> (' + idNum(ratio, 1) + '%) belum tercatat; ini bukan volume sampah yang dibuang ke lingkungan.';
+    if (review) text += ' Angka ' + state.year + ' perlu tinjau karena cara pencatatan berubah.';
     byId('gapNote').innerHTML = text;
   }
 
@@ -562,7 +600,7 @@
     var W = size.width;
     var H = size.height;
     var narrow = W < 520;
-    var P = { top: 20, right: narrow ? 42 : 52, bottom: 30, left: 44 };
+    var P = { top: 20, right: narrow ? 18 : 24, bottom: 30, left: 40 };
     var plotW = W - P.left - P.right;
     var plotH = H - P.top - P.bottom;
     if (plotW < 60 || plotH < 60) return;
@@ -591,16 +629,6 @@
       }, svg, String(tick));
     });
 
-    [90, 60].forEach(function (tick) {
-      el('line', {
-        x1: P.left, x2: W - P.right, y1: y(tick), y2: y(tick),
-        'class': 'threshold-line', 'aria-hidden': 'true'
-      }, svg);
-      el('text', {
-        x: W - P.right + 5, y: y(tick) + 3.5, 'class': 'threshold-label', 'aria-hidden': 'true'
-      }, svg, String(tick) + '%');
-    });
-
     el('line', {
       x1: P.left, x2: W - P.right, y1: baseline, y2: baseline,
       'class': 'axis', 'aria-hidden': 'true'
@@ -612,24 +640,23 @@
       var center = P.left + slot * (index + 0.5);
       var value = kpiAt(year).persen_kelola;
       var review = isReviewYear(year);
-      var status = statusFor(value);
-      var barClass = review ? 'bar-review' : status === 'green' ? 'bar-green' : status === 'yellow' ? 'bar-yellow' : 'bar-red';
+      var barClass = review ? 'bar-review' : 'bar-capaian';
       var selected = year === state.year;
-      var tip = 'Terkelola\nTahun: ' + year + '\nPersen: ' + idNum(value, 2) + '%\n' +
-        (review ? 'Status: perlu tinjau — definisi/cakupan berubah' : 'Ambang usulan: ' + statusLabel(status));
+      var tip = 'Tercatat terkelola\nTahun: ' + year + '\nPersentase: ' + idNum(value, 1) + '%\n' +
+        (review ? 'Status: perlu tinjau — cara pencatatan berbeda' : 'Angka bisa dibandingkan dengan tahun sebelumnya');
       var bar = el('rect', {
         x: center - barWidth / 2, y: y(value), width: barWidth,
         height: Math.max(0, baseline - y(value)), rx: 3,
         'class': barClass + (selected ? ' bar-selected' : ''),
         role: 'img', tabindex: '0',
-        'aria-label': year + ': ' + idNum(value, 2) + '% terkelola' + (review ? ', perlu tinjau' : ', ambang usulan ' + statusLabel(status)),
+        'aria-label': year + ': ' + idNum(value, 1) + '% sampah tercatat terkelola' + (review ? ', perlu tinjau' : ''),
         dataTip: tip
       }, svg);
-      el('title', {}, bar, year + ': ' + idNum(value, 2) + '% terkelola' + (review ? ' (perlu tinjau)' : ''));
+      el('title', {}, bar, year + ': ' + idNum(value, 1) + '% tercatat terkelola' + (review ? ' (perlu tinjau)' : ''));
       el('text', {
         x: center, y: Math.max(P.top + 12, y(value) - 6),
         'text-anchor': 'middle', 'class': 'value-label', 'aria-hidden': 'true'
-      }, svg, idNum(value, 2) + '%' + (review ? '*' : ''));
+      }, svg, idNum(value, 1) + '%' + (review ? '*' : ''));
       el('text', {
         x: center, y: H - 9, 'text-anchor': 'middle',
         'class': 'tick' + (selected ? ' selected-tick' : ''), 'aria-hidden': 'true'
@@ -761,9 +788,9 @@
       }
       var focus = !!COMPOSITION_FOCUS[row.kategori];
       return '<tr class="' + (focus ? 'row-focus' : '') + '"><td>' + escapeHtml(row.kategori) +
-        (focus ? '<span class="chip-focus">fokus</span>' : '') +
+        (focus ? '<span class="chip-focus">terbesar</span>' : '') +
         '</td><td class="num">' + idNum(row.persen, 2) + '%</td><td>' +
-        (focus ? 'Kandidat fokus pemilahan' : '—') + '</td></tr>';
+        (focus ? 'Dua kategori terbesar' : '—') + '</td></tr>';
     }).join('');
 
     tfoot.innerHTML = '<tr><th scope="row">Total terisi</th><td class="num">' + idNum(total, 2) +
@@ -772,13 +799,12 @@
     var note = byId('komposisiNote');
     if (note) {
       if (missing.length) {
-        note.textContent = state.year + ' menampilkan ' + known.length + ' kategori terisi dan ' +
-          missing.length + ' kategori NA (Kayu Ranting). Set kategori 2021–2024 memiliki 8 kategori; ' +
-          '2025 memiliki 9 kategori, sehingga perbandingan antar-tahun perlu hati-hati.';
+        note.textContent = state.year + ' menampilkan ' + known.length + ' kategori terisi; ' +
+          missing.length + ' kategori (Kayu Ranting) tidak tersedia di sumber. Sejak 2025 ada 9 kategori, ' +
+          'jadi perbandingan antar-tahun perlu hati-hati.';
       } else {
         note.textContent = state.year + ' menampilkan ' + known.length + ' kategori terisi, termasuk Kayu Ranting (2,00%) ' +
-          'yang NA pada 2021–2024. Semua tahun berjumlah 100%, tetapi set kategori berubah sehingga ' +
-          'perbandingan antar-tahun tidak sepenuhnya sebanding.';
+          'yang tidak tersedia pada 2021–2024. Semua tahun berjumlah 100%, tetapi set kategori berubah.';
       }
     }
   }
@@ -788,6 +814,18 @@
     renderKomposisiTable();
     var badge = byId('komposisiYearBadge');
     if (badge) badge.textContent = String(state.year);
+
+    var known = knownComposition(state.year);
+    var summary = byId('komposisiSummary');
+    if (summary && known.length) {
+      var top1 = known[0];
+      var top2 = known[1];
+      var rest = known.length - 2;
+      var focusSum = top1.persen + (top2 ? top2.persen : 0);
+      summary.innerHTML = '<strong>' + escapeHtml(top1.kategori) + '</strong> dan <strong>' +
+        escapeHtml(top2.kategori) + '</strong> mencakup <strong>' + idNum(focusSum, 1) +
+        '%</strong> dari total sampah ' + state.year + '. Sisanya tersebar di ' + rest + ' kategori lain.';
+    }
   }
 
   // ---------- donut & gap panel ----------
@@ -814,8 +852,8 @@
 
     var pKelola = cur.terkelola_tahunan_ton / total;
     var segments = [
-      { name: 'Terkelola', value: cur.terkelola_tahunan_ton, pct: pKelola * 100, color: C.donutTer, key: 'terkelola' },
-      { name: 'Belum terkelola', value: cur.belum_terkelola_tahunan_ton, pct: (1 - pKelola) * 100, color: C.donutBelum, key: 'belum' }
+      { name: 'Tercatat terkelola', value: cur.terkelola_tahunan_ton, pct: pKelola * 100, color: C.donutTer, key: 'terkelola' },
+      { name: 'Belum tercatat', value: cur.belum_terkelola_tahunan_ton, pct: (1 - pKelola) * 100, color: C.donutBelum, key: 'belum' }
     ];
 
     var cx = 80;
@@ -846,7 +884,7 @@
     el('text', {
       x: cx, y: cy + 14, 'text-anchor': 'middle',
       'class': 'donut-center-label', 'aria-hidden': 'true'
-    }, svg, 'terkelola');
+    }, svg, 'tercatat');
 
     byId('donutLegend').innerHTML = segments.map(function (segment) {
       return '<div class="row"><span class="swatch donut-swatch" style="background:' + segment.color + '"></span>' +
@@ -865,30 +903,24 @@
 
     var html = '<div class="big' + (review ? ' big-review' : '') + '">' +
       idNum(cur.belum_terkelola_tahunan_ton, 0) + ' ton' +
-      '<span class="muted"> belum terkelola (' + idNum(ratio, 2) + '%)</span></div>';
+      '<span class="muted"> belum tercatat terkelola (' + idNum(ratio, 1) + '%)</span></div>';
     if (review) {
-      html += '<p class="review-note"><strong>Perlu tinjau.</strong> Angka 2024–2025 memakai definisi/cakupan berbeda; ' +
-        'status ini bukan penilaian kinerja. <button type="button" class="text-link" data-open-details>Buka catatan</button></p>';
+      html += '<p class="review-note"><strong>Perlu tinjau.</strong> Angka ' + state.year +
+        ' memakai cara pencatatan berbeda; ini bukan penilaian kinerja. ' +
+        '<button type="button" class="text-link" data-open-details>Penjelasan</button></p>';
     }
+    html += '<p class="plain-note"><strong>Belum tercatat bukan berarti dibuang ke lingkungan.</strong> ' +
+      'Ini selisih antara total sampah dan yang tercatat terkelola.</p>';
 
     var rows = [
-      ['Timbulan tahunan', idNum(cur.timbulan_tahunan_ton, 2) + ' ton'],
-      ['Terkelola', idNum(cur.terkelola_tahunan_ton, 2) + ' ton (' + idNum(cur.persen_kelola, 2) + '%)'],
-      ['Belum terkelola', idNum(cur.belum_terkelola_tahunan_ton, 2) + ' ton'],
-      ['Rasio belum terkelola', idNum(ratio, 2) + '%'],
-      ['Daur ulang + bahan baku*', idNum(cur.persen_recycling_rate, 2) + '%' + (review ? ' — verifikasi' : '')],
-      ['Jumlah penduduk', idNum(cur.jumlah_penduduk_jiwa, 0) + ' jiwa'],
-      ['Selisih rumus (validasi)', idNum(cur.selisih_rumus, 6) + ' ton']
+      ['Sampah dihasilkan', idNum(cur.timbulan_tahunan_ton, 0) + ' ton'],
+      ['Tercatat terkelola', idNum(cur.terkelola_tahunan_ton, 0) + ' ton (' + idNum(cur.persen_kelola, 1) + '%)'],
+      ['Belum tercatat', idNum(cur.belum_terkelola_tahunan_ton, 0) + ' ton'],
+      ['Per orang per hari', idNum(cur.timbulan_kg_per_orang_hari, 2) + ' kg']
     ];
     html += rows.map(function (row) {
       return '<div class="row"><span>' + row[0] + '</span><span>' + row[1] + '</span></div>';
     }).join('');
-    html += '<div class="gap-explain"><strong>Cara membaca</strong><ul>' +
-      '<li>Selisih = timbulan − terkelola; bukan volume sampah yang dibuang ke lingkungan.</li>' +
-      (review
-        ? '<li>Tahun ini ditandai perlu tinjau; warna netral bukan penilaian kinerja.</li>'
-        : '<li>Delta tahun ini dihitung terhadap tahun sebelumnya yang sebanding.</li>') +
-      '</ul></div>';
     byId('kesenjanganPanel').innerHTML = html;
   }
 
@@ -926,56 +958,41 @@
     var filled = rows.filter(function (row) { return row.persen !== null; }).length;
     var missing = rows.length - filled;
     var status = review
-      ? '<span class="badge badge-tinjau">perlu tinjau</span> definisi/cakupan 2024–2025 berbeda; delta antar-tahun tidak ditampilkan.'
+      ? '<span class="badge badge-tinjau">perlu tinjau</span> cara mencatat 2024–2025 berbeda; angka tidak untuk dibandingkan.'
       : '<span class="badge badge-netral">sebanding</span> angka dapat dibandingkan dengan tahun sebelumnya.';
 
     var items = [
       '<strong>Tahun ' + state.year + '</strong> — ' + status,
-      'Timbulan ' + idNum(cur.timbulan_tahunan_ton, 2) + ' ton; terkelola ' + idNum(cur.terkelola_tahunan_ton, 2) +
-        ' ton (' + idNum(cur.persen_kelola, 2) + '%); belum terkelola ' + idNum(cur.belum_terkelola_tahunan_ton, 2) + ' ton.',
-      'Daur ulang + bahan baku*: ' + idNum(cur.persen_recycling_rate, 2) + '%. Komponen sumber: ' +
+      'Sampah dihasilkan ' + idNum(cur.timbulan_tahunan_ton, 2) + ' ton; tercatat terkelola ' +
+        idNum(cur.terkelola_tahunan_ton, 2) + ' ton (' + idNum(cur.persen_kelola, 2) +
+        '%); belum tercatat ' + idNum(cur.belum_terkelola_tahunan_ton, 2) + ' ton.',
+      'Daur ulang + bahan baku (metrik tambahan): ' + idNum(cur.persen_recycling_rate, 2) + '%. Komponen sumber: ' +
         idNum(cur.jml_daur_ulang_ton, 2) + ' ton daur ulang + ' + idNum(cur.jml_bahan_baku_ton, 2) + ' ton bahan baku.' +
         (review ? ' Komponen ini praktis sama dengan pengurangan/penanganan, sehingga bukan metrik daur ulang independen.' : ''),
-      'Komposisi: ' + filled + ' kategori terisi' + (missing ? ' dan ' + missing + ' NA' : '') +
+      'Komposisi: ' + filled + ' kategori terisi' + (missing ? ' dan ' + missing + ' tidak tersedia' : '') +
         '; lihat catatan set kategori di panel ini.'
     ];
     byId('konteksList').innerHTML = items.map(function (item) { return '<li>' + item + '</li>'; }).join('');
   }
 
-  // ---------- key findings ----------
+  // ---------- sorotan ----------
   function renderCBQ() {
-    var latest = kpiAt(LATEST_YEAR);
-    var first = kpiAt(DATA.years[0]);
-    var peakYear = DATA.years.reduce(function (best, year) {
-      return kpiAt(year).belum_terkelola_tahunan_ton > kpiAt(best).belum_terkelola_tahunan_ton ? year : best;
-    }, DATA.years[0]);
-    var peak = kpiAt(peakYear);
-    var peakRatio = (peak.belum_terkelola_tahunan_ton / peak.timbulan_tahunan_ton) * 100;
-    var focusSum = compositionRowsFor(LATEST_YEAR).reduce(function (sum, row) {
-      return COMPOSITION_FOCUS[row.kategori] ? sum + (row.persen || 0) : sum;
-    }, 0);
-    var perCapitaDelta = ((latest.timbulan_kg_per_orang_hari - first.timbulan_kg_per_orang_hari) /
-      first.timbulan_kg_per_orang_hari) * 100;
-    var worstYear = DATA.years.filter(function (year) {
-      return kpiAt(year).delta_penanganan !== null;
-    }).reduce(function (worst, year) {
-      return kpiAt(year).delta_penanganan < kpiAt(worst).delta_penanganan ? year : worst;
-    }, DATA.years.filter(function (year) { return kpiAt(year).delta_penanganan !== null; })[0]);
+    var known = knownComposition(state.year);
+    var top1 = known[0] || { kategori: 'Kategori terbesar', persen: 0 };
+    var top2 = known[1] || { kategori: 'kategori berikutnya', persen: 0 };
+    var topSum = top1.persen + top2.persen;
+    var totals = DATA.years.map(function (year) { return kpiAt(year).timbulan_tahunan_ton; });
+    var min = Math.min.apply(null, totals) / 1000;
+    var max = Math.max.apply(null, totals) / 1000;
 
     var items = [
-      '<li><strong>CBQ1 — Kesenjangan terbesar.</strong> ' + peakYear + ': ' +
-        idNum(peak.belum_terkelola_tahunan_ton, 0) + ' ton (' + idNum(peakRatio, 2) + '% dari timbulan). ' +
-        'Angka ini sinyal audit definisi, bukan bukti kegagalan operasional.</li>',
-      '<li><strong>CBQ2 — Fokus pemilahan.</strong> Sisa Makanan + Plastik pada ' + LATEST_YEAR + ' = ' +
-        idNum(focusSum, 1) + '% dari komposisi. Proporsi ini kandidat fokus kajian, bukan janji pengurangan.</li>',
-      '<li><strong>CBQ3 — Per kapita.</strong> ' + idNum(first.timbulan_kg_per_orang_hari, 3) + ' → ' +
-        idNum(latest.timbulan_kg_per_orang_hari, 3) + ' kg/orang/hari (' +
-        (perCapitaDelta >= 0 ? '+' : '−') + idNum(Math.abs(perCapitaDelta), 2) + '% vs 2021).</li>',
-      '<li><strong>CBQ4 — Penurunan penanganan terbesar.</strong> ' + worstYear + ' (' +
-        idNum(Math.abs(kpiAt(worstYear).delta_penanganan), 0) + ' ton). Perubahan ini bertepatan dengan ' +
-        'perubahan definisi 2024–2025; jangan dibaca sebagai evaluasi kausal.</li>',
-      '<li><strong>CBQ5 — Tumbuh kumulatif sejak 2021.</strong> Timbulan ' +
-        idNum(latest.tumbuh_sampah, 2) + '% vs penduduk ' + idNum(latest.tumbuh_penduduk, 2) + '%.</li>'
+      '<li><strong>' + escapeHtml(top1.kategori) + ' dan ' + escapeHtml(top2.kategori) +
+        ' mendominasi.</strong> Keduanya mencakup ' + idNum(topSum, 1) + '% dari komposisi ' + state.year +
+        '. Ini dua kategori paling besar untuk dipilah.</li>',
+      '<li><strong>Jumlah sampah relatif stabil.</strong> Sepanjang 2021–2025, sampah yang dihasilkan berkisar ' +
+        idNum(min, 0) + '–' + idNum(max, 0) + ' ribu ton per tahun.</li>',
+      '<li><strong>Hati-hati membandingkan 2024–2025.</strong> Cara pencatatan berubah, jadi angka pengelolaan ' +
+        'kedua tahun itu bukan penilaian kinerja.</li>'
     ];
     byId('cbqList').innerHTML = items.join('');
   }
@@ -984,13 +1001,17 @@
   function renderYearDependent() {
     var headerYear = byId('headerYear');
     if (headerYear) headerYear.textContent = String(state.year);
-    renderScorecards();
+    renderHero();
+    renderKeyFacts();
     renderTimbulanChart();
     renderKelolaChart();
+    renderKelolaNote();
     renderIndeksChart();
     renderKomposisiSection();
     renderKesenjangan();
+    renderReadingGuide();
     renderKonteks();
+    renderCBQ();
   }
 
   function setYear(year, options) {
@@ -1097,6 +1118,28 @@
     var ids = ['chartTimbulan', 'chartKelola', 'chartIndeks', 'chartKomposisi'];
     var printRestoreTimer = null;
     var printMedia = window.matchMedia ? window.matchMedia('print') : null;
+    var printDetails = [];
+
+    function openPrintDetails() {
+      ['.plain-details', '.table-details'].forEach(function (selector) {
+        var node = document.querySelector(selector);
+        if (node && !node.open) {
+          node.open = true;
+          if (printDetails.indexOf(node) === -1) printDetails.push(node);
+        }
+      });
+    }
+
+    function restorePrintDetails() {
+      var nodes = printDetails.slice();
+      printDetails = [];
+      nodes.forEach(function (node) { node.open = false; });
+      // Chrome dapat mengembalikan state cetak setelah afterprint; tutup lagi
+      // sebentar setelahnya agar halaman tidak tertinggal dalam keadaan terbuka.
+      window.setTimeout(function () {
+        nodes.forEach(function (node) { node.open = false; });
+      }, 300);
+    }
 
     function cancelPrintRestore() {
       if (printRestoreTimer) {
@@ -1134,15 +1177,21 @@
     }, { passive: true });
     window.addEventListener('beforeprint', function () {
       cancelPrintRestore();
+      openPrintDetails();
       renderResponsiveCharts();
     });
-    window.addEventListener('afterprint', restoreAfterPrint);
+    window.addEventListener('afterprint', function () {
+      restorePrintDetails();
+      restoreAfterPrint();
+    });
     if (printMedia && printMedia.addEventListener) {
       printMedia.addEventListener('change', function (event) {
         if (event.matches) {
           cancelPrintRestore();
+          openPrintDetails();
           renderResponsiveCharts();
         } else {
+          restorePrintDetails();
           restoreAfterPrint();
         }
       });
@@ -1165,9 +1214,6 @@
 
     var banner = byId('bannerDetails');
     if (banner) banner.addEventListener('click', function () { openDetails(this); });
-
-    var caveat = byId('recyclingCaveatLink');
-    if (caveat) caveat.addEventListener('click', function () { openDetails(this); });
 
     var close = byId('detailsClose');
     if (close) close.addEventListener('click', closeDetails);
@@ -1195,21 +1241,18 @@
     bindEvents();
     renderSumber();
     renderValidasi();
-    renderCBQ();
 
     renderLegend('legendTimbulan', [
-      { name: 'Timbulan', color: C.timbulan },
-      { name: 'Terkelola', color: C.terkelola },
-      { name: 'Selisih belum terkelola', color: C.gap, area: true }
+      { name: 'Sampah dihasilkan', color: C.timbulan },
+      { name: 'Tercatat terkelola', color: C.terkelola },
+      { name: 'Belum tercatat', color: C.gap, area: true }
     ]);
     renderLegend('legendKelola', [
-      { name: '≥90% (usulan)', color: '#1a7f37', bar: true },
-      { name: '60–90% (usulan)', color: '#c08a00', bar: true },
-      { name: '<60% (usulan)', color: '#b4232e', bar: true },
+      { name: 'tercatat terkelola', color: C.terkelola, bar: true },
       { name: 'perlu tinjau', bar: true, na: true }
     ]);
     renderLegend('legendIndeks', [
-      { name: 'Timbulan (2021 = 100)', color: C.timbulan },
+      { name: 'Sampah dihasilkan (2021 = 100)', color: C.timbulan },
       { name: 'Penduduk (2021 = 100)', color: C.penduduk }
     ]);
     renderLegend('legendKomposisi', [
@@ -1221,6 +1264,13 @@
 
     var caption = byId('chartCaptionTimbulan');
     if (caption) caption.textContent = '· sumbu Y: ribu ton, dari nol';
+
+    var advanced = document.querySelector('.advanced-details');
+    if (advanced) {
+      advanced.addEventListener('toggle', function () {
+        if (advanced.open) window.requestAnimationFrame(renderIndeksChart);
+      });
+    }
 
     ['chartTimbulan', 'chartKelola', 'chartIndeks', 'chartKomposisi', 'chartDonut'].forEach(function (id) {
       bindTooltips(byId(id));

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Dashboard historis pengelolaan sampah Kota Semarang 2021–2025: timbulan, capaian pengelolaan, komposisi, dan temuan kunci." />
+  <meta name="description" content="Dashboard pengelolaan sampah Kota Semarang 2021–2025: ringkasan jumlah sampah, yang tercatat terkelola, isi sampah, dan catatan data." />
   <meta name="theme-color" content="#0e2a47" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230e2a47'/%3E%3Cpath d='M9 12h14M13 12V9h6v3M11 12l1 12h8l1-12' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
   <title>Dashboard Pengelolaan Sampah Kota Semarang (2021–2025)</title>
@@ -15,94 +15,112 @@
   <header class="topbar">
     <div>
       <h1>Dashboard Pengelolaan Sampah Kota Semarang</h1>
-      <p class="subtitle">Data historis agregat Kota Semarang · periode 2021–2025 · tahun sorotan <strong id="headerYear">2025</strong> · bukan pemantauan real-time</p>
+      <p class="subtitle">Ringkasan kondisi pengelolaan sampah 2021–2025 · data tahunan, bukan real-time · tahun dipilih <strong id="headerYear">2025</strong></p>
     </div>
     <div class="controls">
       <label for="yearSelect">Tahun</label>
       <select id="yearSelect" aria-label="Pilih tahun untuk seluruh dashboard"></select>
-      <button id="detailsToggle" type="button" aria-expanded="false" aria-controls="detailsPanel">Detail &amp; sumber</button>
+      <button id="detailsToggle" type="button" aria-expanded="false" aria-controls="detailsPanel">Catatan &amp; sumber</button>
     </div>
   </header>
 
-  <aside class="alert-banner" aria-label="Catatan keterbandingan data">
-    <span><strong>Catatan keterbandingan:</strong> definisi/cakupan pelaporan 2024–2025 berbeda — angka adalah sinyal audit, bukan evaluasi kausal.</span>
-    <button type="button" class="banner-link" id="bannerDetails" aria-controls="detailsPanel" aria-expanded="false">Lihat detail →</button>
+  <aside class="alert-banner" aria-label="Catatan data">
+    <span><strong>Catatan data:</strong> cara mencatat angka 2024–2025 berbeda dari tahun sebelumnya, jadi angkanya tidak bisa dibandingkan dengan tahun lain.</span>
+    <button type="button" class="banner-link" id="bannerDetails" aria-controls="detailsPanel" aria-expanded="false">Penjelasan →</button>
   </aside>
 
   <main class="page" id="mainContent" tabindex="-1">
     <noscript>
-      <div class="card">Dashboard ini membutuhkan JavaScript untuk menampilkan chart dan scorecard. Silakan aktifkan JavaScript, atau lihat data mentah di folder <code>data/</code>.</div>
+      <div class="card">Dashboard ini membutuhkan JavaScript untuk menampilkan angka dan grafik. Silakan aktifkan JavaScript, atau lihat data mentah di folder <code>data/</code>.</div>
     </noscript>
 
     <!-- RINGKASAN -->
     <section class="zone zone-top" aria-labelledby="zonaAtas">
-      <h2 id="zonaAtas" class="zone-title">Ringkasan Eksekutif <span class="hint">jawaban cepat</span></h2>
-      <div id="scorecards" class="scorecards" role="region" aria-label="Ringkasan indikator tahun terpilih" aria-live="polite"></div>
+      <h2 id="zonaAtas" class="zone-title">Ringkasan <span class="hint">tahun terpilih</span></h2>
+      <div id="heroSummary" class="hero-summary" aria-live="polite"></div>
       <p id="yearContextNote" class="year-context-note"></p>
-      <p class="kpi-caveat">* <strong>Daur ulang + bahan baku</strong> dihitung dari (daur ulang + bahan baku) / timbulan. Pada 2024–2025 komponen sumber praktis sama dengan pengurangan/penanganan, sehingga angkanya bukan metrik daur ulang independen. <button type="button" class="text-link" id="recyclingCaveatLink">Lihat detail</button></p>
-      <div class="threshold-legend">
-        <span><span class="dot dot-green"></span>≥ 90% (usulan)</span>
-        <span><span class="dot dot-yellow"></span>60–90% (usulan)</span>
-        <span><span class="dot dot-red"></span>&lt; 60% (usulan)</span>
-        <span><span class="dot dot-review"></span>perlu tinjau (2024–2025)</span>
-        <span class="muted">Ambang di atas adalah <strong>usulan, belum resmi</strong> — bukan target kebijakan.</span>
-      </div>
+      <div id="keyFacts" class="key-facts"></div>
+
+      <details class="plain-details">
+        <summary>Apa arti istilah di dashboard ini?</summary>
+        <dl class="glossary">
+          <div><dt>Timbulan</dt><dd>Jumlah sampah yang dihasilkan dalam satu tahun.</dd></div>
+          <div><dt>Tercatat terkelola</dt><dd>Sampah yang masuk jalur pengurangan atau penanganan dalam laporan. Bukan berarti seluruh sampah sudah hilang dari lingkungan.</dd></div>
+          <div><dt>Belum tercatat</dt><dd>Selisih antara total sampah dan yang tercatat terkelola; bukan volume sampah yang dibuang ke lingkungan.</dd></div>
+          <div><dt>Komposisi</dt><dd>Persentase setiap jenis sampah dari total sampah.</dd></div>
+        </dl>
+      </details>
     </section>
 
     <!-- TREN -->
     <section class="zone zone-middle" aria-labelledby="zonaTengah">
-      <h2 id="zonaTengah" class="zone-title">Tren &amp; Kinerja</h2>
+      <h2 id="zonaTengah" class="zone-title">Perubahan dari Tahun ke Tahun</h2>
 
       <div class="card">
         <div class="card-head">
-          <h3>Tren Timbulan vs Terkelola <span id="chartCaptionTimbulan" class="hint"></span></h3>
+          <h3>Sampah dihasilkan vs tercatat terkelola <span id="chartCaptionTimbulan" class="hint"></span></h3>
           <div class="legend" id="legendTimbulan"></div>
         </div>
-        <svg id="chartTimbulan" class="chart" role="group" aria-label="Line chart tren timbulan dan terkelola per tahun. Area amber menunjukkan selisih belum terkelola. 2024–2025 perlu tinjau."></svg>
+        <svg id="chartTimbulan" class="chart" role="group" aria-label="Line chart jumlah sampah dihasilkan dan yang tercatat terkelola per tahun. Area amber menunjukkan selisih yang belum tercatat. 2024–2025 perlu tinjau."></svg>
         <p id="gapNote" class="gap-note"></p>
       </div>
 
       <div class="grid-2">
         <div class="card">
           <div class="card-head">
-            <h3>Capaian Pengelolaan per Tahun (%)</h3>
+            <h3>Persentase tercatat terkelola per tahun</h3>
             <div class="legend" id="legendKelola"></div>
           </div>
-          <svg id="chartKelola" class="chart chart-small" role="group" aria-label="Bar chart persen terkelola per tahun. 2024 dan 2025 memakai definisi berbeda dan perlu tinjau."></svg>
-          <p class="threshold-footnote">Garis kuning putus-putus adalah <strong>ambang usulan</strong> (≥90% / 60–90% / &lt;60%), bukan target resmi atau kebijakan. Batang abu-abu 2024–2025 menandakan data <strong>perlu tinjau</strong>, bukan status kinerja.</p>
+          <svg id="chartKelola" class="chart chart-small" role="group" aria-label="Bar chart persentase sampah tercatat terkelola per tahun. 2024 dan 2025 perlu tinjau."></svg>
+          <p id="kelolaNote" class="plain-note"></p>
         </div>
 
         <div class="card">
-          <div class="card-head">
-            <h3>Indeks Timbulan vs Penduduk <span class="hint">2021 = 100</span></h3>
-            <div class="legend" id="legendIndeks"></div>
-          </div>
-          <svg id="chartIndeks" class="chart chart-small" role="group" aria-label="Line chart dua seri: indeks timbulan dan indeks penduduk, 2021 sama dengan 100."></svg>
+          <div class="card-head"><h3>Baca angka ini</h3></div>
+          <div id="readingGuide" class="reading-guide" aria-live="polite"></div>
         </div>
       </div>
+
+      <details class="advanced-details">
+        <summary>Lihat analisis lanjutan: indeks timbulan vs penduduk</summary>
+        <div class="advanced-body">
+          <div class="card">
+            <div class="card-head">
+              <h3>Indeks timbulan vs penduduk <span class="hint">2021 = 100</span></h3>
+              <div class="legend" id="legendIndeks"></div>
+            </div>
+            <p class="chart-summary">Penduduk tumbuh lebih cepat daripada jumlah sampah. Artinya, sampah per orang sedikit menurun.</p>
+            <svg id="chartIndeks" class="chart chart-small" role="group" aria-label="Line chart indeks timbulan dan indeks penduduk, 2021 sama dengan 100."></svg>
+          </div>
+        </div>
+      </details>
     </section>
 
     <!-- KOMPOSISI & KESENJANGAN -->
     <section class="zone zone-bottom" aria-labelledby="zonaBawah">
-      <h2 id="zonaBawah" class="zone-title">Komposisi &amp; Kesenjangan</h2>
+      <h2 id="zonaBawah" class="zone-title">Isi Sampah &amp; Pengelolaan</h2>
 
       <div class="grid-2">
         <div class="card">
           <div class="card-head">
-            <h3>Komposisi Sampah <span id="komposisiYearBadge" class="year-badge"></span></h3>
+            <h3>Isi sampah <span id="komposisiYearBadge" class="year-badge"></span></h3>
           </div>
+          <p id="komposisiSummary" class="chart-summary"></p>
           <svg id="chartKomposisi" class="chart chart-komposisi" role="group" aria-label="Horizontal bar chart komposisi sampah per kategori. Kategori fokus: sisa makanan dan plastik."></svg>
           <div class="legend legend-komposisi" id="legendKomposisi"></div>
-          <table class="komposisi-table" id="komposisiTable" aria-label="Tabel komposisi sampah">
-            <thead><tr><th scope="col">Kategori</th><th scope="col">Persen</th><th scope="col">Keterangan</th></tr></thead>
-            <tbody></tbody>
-            <tfoot></tfoot>
-          </table>
-          <p class="footnote" id="komposisiNote">2021–2024 memiliki 8 kategori terisi (Kayu Ranting NA); 2025 memiliki 9 kategori terisi. Semua tahun berjumlah 100%, tetapi set kategori berubah sehingga perbandingan antar-tahun perlu hati-hati.</p>
+          <details class="table-details">
+            <summary>Lihat tabel angka lengkap</summary>
+            <table class="komposisi-table" id="komposisiTable" aria-label="Tabel komposisi sampah">
+              <thead><tr><th scope="col">Kategori</th><th scope="col">Persen</th><th scope="col">Keterangan</th></tr></thead>
+              <tbody></tbody>
+              <tfoot></tfoot>
+            </table>
+            <p class="footnote" id="komposisiNote"></p>
+          </details>
         </div>
 
         <div class="card">
-          <div class="card-head"><h3>Kesenjangan Pengelolaan <span id="kesenjanganYearBadge" class="year-badge"></span></h3></div>
+          <div class="card-head"><h3>Tercatat vs belum tercatat <span id="kesenjanganYearBadge" class="year-badge"></span></h3></div>
           <div class="kesenjangan-head">
             <svg id="chartDonut" class="chart-donut" viewBox="0 0 160 160" role="group" aria-label="Donut terkelola vs belum terkelola untuk tahun terpilih"></svg>
             <div class="donut-legend" id="donutLegend"></div>
@@ -112,8 +130,8 @@
       </div>
 
       <div class="card insight-section">
-        <div class="card-head"><h3>Temuan Kunci <span class="hint">lintas tahun</span></h3></div>
-        <ul id="cbqList" class="insight-grid" aria-label="Temuan kunci lintas tahun"></ul>
+        <div class="card-head"><h3>Sorotan <span class="hint">tahun terpilih</span></h3></div>
+        <ul id="cbqList" class="insight-grid" aria-label="Sorotan data"></ul>
       </div>
     </section>
   </main>
@@ -121,13 +139,15 @@
   <div id="detailsBackdrop" class="details-backdrop" hidden></div>
   <div id="detailsPanel" class="details-panel" role="dialog" aria-modal="true" aria-labelledby="detailsTitle" hidden>
     <div class="details-head">
-      <h2 id="detailsTitle">Detail &amp; Sumber: Rumus dan Validasi</h2>
-      <button id="detailsClose" type="button" class="link-button" aria-label="Tutup panel detail">Tutup</button>
+      <h2 id="detailsTitle">Catatan, Sumber, dan Validasi</h2>
+      <button id="detailsClose" type="button" class="link-button" aria-label="Tutup panel catatan">Tutup</button>
     </div>
     <div class="details-grid">
       <div>
         <h3>Sumber &amp; lisensi</h3>
         <ul id="sumberList"></ul>
+        <h3>Konteks tahun terpilih</h3>
+        <ul id="konteksList"></ul>
         <h3>Rumus ringkas</h3>
         <ul class="formula">
           <li>Terkelola = pengurangan + penanganan (diperiksa terhadap kolom sumber; <code>selisih_rumus ≈ 0</code>)</li>
@@ -137,12 +157,12 @@
           <li>Pertumbuhan kumulatif = (nilai t / nilai 2021 − 1) × 100 (bukan year-on-year)</li>
           <li>Daur ulang + bahan baku = (jml_daur_ulang + jml_bahan_baku) / timbulan × 100. <strong>2024–2025 perlu verifikasi:</strong> komponen sumber praktis sama dengan pengurangan/penanganan, jadi ini bukan metrik daur ulang independen.</li>
         </ul>
-        <h3>Konteks tahun terpilih</h3>
-        <ul id="konteksList"></ul>
         <h3>Catatan komposisi</h3>
         <p class="details-note">2021–2024: 8 kategori terisi (Kayu Ranting NA). 2025: 9 kategori terisi. Semua tahun berjumlah 100%, tetapi set kategori berubah sehingga perbandingan antar-tahun tidak sepenuhnya sebanding.</p>
         <h3>Mengapa 2024–2025 ditandai?</h3>
         <p class="details-note">Dashboard menandai 2024–2025 sebagai periode <strong>perlu tinjau</strong> karena data 2024 menunjukkan lompatan yang tidak konsisten dengan 2021–2023, sementara validasi sumber mencatat perubahan definisi pengelolaan pada 2025. Karena itu, delta 2024–2025 tidak ditampilkan sebagai perubahan kinerja.</p>
+        <h3>Catatan ambang (usulan internal)</h3>
+        <p class="details-note">Ambang 90% / 60% / &lt;60% adalah usulan untuk latihan, bukan target kebijakan. Grafik utama tidak memberi warna status kinerja karena angka 2024–2025 belum sebanding.</p>
       </div>
       <div>
         <h3>Hasil validasi (<code>validasi_data.csv</code>)</h3>
