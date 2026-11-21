@@ -5,7 +5,7 @@
   var main = document.getElementById('mainContent');
   if (!DATA || !DATA.kpi || !Array.isArray(DATA.years) || !DATA.years.length) {
     if (main) {
-      main.innerHTML = '<p class="card">Gagal memuat data dashboard. Jalankan <code>python tools/build_data.py</code> lalu muat ulang halaman.</p>';
+      main.innerHTML = '<div class="card">Gagal memuat data dashboard. Jalankan <code>python tools/build_data.py</code> lalu muat ulang halaman.</div>';
     }
     return;
   }
@@ -14,22 +14,37 @@
   var META = DATA.meta || {};
   var BREAK_YEARS = (META.break_years || []).map(Number);
   var LATEST_YEAR = DATA.years[DATA.years.length - 1];
+  var BASE_YEAR = DATA.years[0];
   var COMPOSITION_FOCUS = { 'Sisa Makanan': true, 'Plastik': true };
-  var state = { year: LATEST_YEAR };
+
+  var state = {
+    year: LATEST_YEAR,
+    tableTab: 'komposisi',
+    search: '',
+    filter: 'all',
+    sortKey: 'persen',
+    sortDir: 'desc',
+    page: 1,
+    pageSize: 5,
+    isPrinting: false
+  };
+
   var resizeRaf = null;
   var lastFocus = null;
 
+  // Material Design 3 / Google Analytics 4 harmonized palette
   var C = {
-    timbulan: '#1f6feb',
-    terkelola: '#0f766e',
-    penduduk: '#b45309',
-    gap: 'rgba(180, 83, 9, 0.16)',
-    reviewBand: 'rgba(82, 100, 120, 0.08)',
-    focus: '#1f6feb',
-    plastik: '#b45309',
-    other: '#a9bacb',
-    donutTer: '#0f766e',
-    donutBelum: '#c6d0da'
+    timbulan: '#1A73E8',
+    terkelola: '#0D9488',
+    pengurangan: '#1A73E8',
+    penanganan: '#0D9488',
+    penduduk: '#EA8600',
+    gap: 'rgba(234, 134, 0, 0.14)',
+    focus: '#1A73E8',
+    plastik: '#EA8600',
+    other: '#94A3B8',
+    unmanaged: '#CBD5E1',
+    donutBelum: '#E2E8F0'
   };
 
   // ---------- helpers ----------
@@ -45,6 +60,11 @@
     if (n === null || n === undefined || typeof n !== 'number' || !isFinite(n)) return '—';
     var d = digits === undefined ? 0 : digits;
     return n.toLocaleString('id-ID', { minimumFractionDigits: d, maximumFractionDigits: d });
+  }
+
+  function signedNum(n, digits) {
+    if (n === null || n === undefined || !isFinite(n)) return '—';
+    return (n > 0 ? '+' : '') + idNum(n, digits);
   }
 
   function kpiAt(year) { return DATA.kpi[String(year)]; }
@@ -79,6 +99,8 @@
         var value = attrs[key];
         if (value === null || value === undefined) return;
         if (key === 'dataTip') node.setAttribute('data-tip', String(value));
+        else if (key === 'dataTipColor') node.setAttribute('data-tip-color', String(value));
+        else if (key === 'dataYear') node.setAttribute('data-year', String(value));
         else node.setAttribute(key, String(value));
       });
     }
@@ -87,11 +109,40 @@
     return node;
   }
 
+  function roundedTopRectPath(x, y, w, h, r) {
+    if (h <= 0 || w <= 0) return '';
+    var rad = Math.min(r, w / 2, h);
+    return [
+      'M', x, y + h,
+      'L', x, y + rad,
+      'Q', x, y, x + rad, y,
+      'L', x + w - rad, y,
+      'Q', x + w, y, x + w, y + rad,
+      'L', x + w, y + h,
+      'Z'
+    ].join(' ');
+  }
+
+  function roundedRightRectPath(x, y, w, h, r) {
+    if (h <= 0 || w <= 0) return '';
+    var rad = Math.min(r, h / 2, w);
+    return [
+      'M', x, y,
+      'L', x + w - rad, y,
+      'Q', x + w, y, x + w, y + rad,
+      'L', x + w, y + h - rad,
+      'Q', x + w, y + h, x + w - rad, y + h,
+      'L', x, y + h,
+      'Z'
+    ].join(' ');
+  }
+
   function clearSvg(svg) {
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    while (svg && svg.firstChild) svg.removeChild(svg.firstChild);
   }
 
   function chartSize(svg, fallbackHeight) {
+    if (!svg) return null;
     var rect = svg.getBoundingClientRect();
     var width = rect.width || 0;
     if (width < 80) return null;
@@ -136,13 +187,21 @@
     return tooltipEl;
   }
 
-  function fillTooltip(raw) {
+  function fillTooltip(raw, accentColor) {
     var tip = ensureTooltip();
     var parts = String(raw).split('\n');
     tip.textContent = '';
     var title = document.createElement('div');
     title.className = 'tt-title';
-    title.textContent = parts.shift() || '';
+    if (accentColor) {
+      var dot = document.createElement('span');
+      dot.className = 'tt-dot';
+      dot.style.background = accentColor;
+      title.appendChild(dot);
+    }
+    var titleText = document.createElement('span');
+    titleText.textContent = parts.shift() || '';
+    title.appendChild(titleText);
     tip.appendChild(title);
     parts.forEach(function (part) {
       var index = part.indexOf(':');
@@ -160,9 +219,9 @@
 
   function showTooltip(clientX, clientY, above) {
     var tip = ensureTooltip();
-    var pad = 10;
+    var pad = 12;
     var width = tip.offsetWidth || 220;
-    var height = tip.offsetHeight || 60;
+    var height = tip.offsetHeight || 68;
     var x = above ? clientX - width / 2 : clientX + 14;
     var y = above ? clientY - height - 10 : clientY + 14;
     tip.style.left = Math.min(window.innerWidth - width - pad, Math.max(pad, x)) + 'px';
@@ -179,14 +238,14 @@
     svg.addEventListener('mousemove', function (event) {
       var target = event.target && event.target.closest ? event.target.closest('[data-tip]') : null;
       if (!target) { hideTooltip(); return; }
-      fillTooltip(target.getAttribute('data-tip'));
+      fillTooltip(target.getAttribute('data-tip'), target.getAttribute('data-tip-color'));
       showTooltip(event.clientX, event.clientY, false);
     });
     svg.addEventListener('mouseleave', hideTooltip);
     svg.addEventListener('focusin', function (event) {
       var target = event.target && event.target.closest ? event.target.closest('[data-tip]') : null;
       if (!target) return;
-      fillTooltip(target.getAttribute('data-tip'));
+      fillTooltip(target.getAttribute('data-tip'), target.getAttribute('data-tip-color'));
       var rect = target.getBoundingClientRect();
       showTooltip(rect.left + rect.width / 2, rect.top, true);
     });
@@ -196,9 +255,27 @@
     svg.addEventListener('click', function (event) {
       var target = event.target && event.target.closest ? event.target.closest('[data-tip]') : null;
       if (!target) return;
-      fillTooltip(target.getAttribute('data-tip'));
+      var yr = target.getAttribute('data-year');
+      if (yr) {
+        var parsed = parseInt(yr, 10);
+        if (DATA.years.indexOf(parsed) !== -1 && parsed !== state.year) {
+          setYear(parsed, { updateUrl: true });
+          return;
+        }
+      }
+      fillTooltip(target.getAttribute('data-tip'), target.getAttribute('data-tip-color'));
       var rect = target.getBoundingClientRect();
       showTooltip(rect.left + rect.width / 2, rect.top, true);
+    });
+    svg.addEventListener('keydown', function (event) {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      var target = event.target && event.target.closest ? event.target.closest('[data-year]') : null;
+      if (!target) return;
+      var parsed = parseInt(target.getAttribute('data-year'), 10);
+      if (DATA.years.indexOf(parsed) !== -1 && parsed !== state.year) {
+        event.preventDefault();
+        setYear(parsed, { updateUrl: true });
+      }
     });
   }
 
@@ -212,6 +289,7 @@
       span.className = 'legend-item';
       var swatch = document.createElement('span');
       swatch.className = 'swatch' +
+        (item.dot ? ' dot' : '') +
         (item.bar ? ' bar' : '') +
         (item.area ? ' area' : '') +
         (item.na ? ' na' : '');
@@ -222,144 +300,272 @@
     });
   }
 
-  // ---------- ringkasan ----------
+  // ---------- global year pills & notice banner ----------
+  function renderYearPills() {
+    var container = byId('yearPills');
+    if (!container) return;
+    container.innerHTML = DATA.years.map(function (year) {
+      var active = year === state.year;
+      var review = isReviewYear(year);
+      return '<button type="button" class="year-pill' + (active ? ' active' : '') + '"' +
+        ' data-select-year="' + year + '"' +
+        ' aria-pressed="' + (active ? 'true' : 'false') + '"' +
+        (review ? ' title="Tahun ' + year + ' berstatus perlu tinjau"' : '') + '>' +
+        year +
+        (review ? '<span class="year-pill-dot" aria-hidden="true"></span>' : '') +
+      '</button>';
+    }).join('');
+  }
+
+  function renderContextBanner() {
+    var banner = byId('contextBanner');
+    if (!banner) return;
+    var year = state.year;
+    var py = prevYear(year);
+    var review = isReviewYear(year);
+    banner.className = 'context-banner' + (review ? ' is-review' : '');
+
+    var iconSvg = review
+      ? '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 3.2L17.5 16H2.5L10 3.2z" stroke-linejoin="round"/><path d="M10 8v3.5M10 13.8h.01" stroke-linecap="round"/></svg>'
+      : '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10" cy="10" r="7.5"/><path d="M10 9v4.5M10 6.3h.01" stroke-linecap="round"/></svg>';
+
+    var message;
+    if (review) {
+      message = '<strong>Tahun ' + year + ' perlu tinjau:</strong> Pencatatan 2024–2025 berbeda dari 2021–2023 (pembanding terakhir: ' +
+        escapeHtml(META.comparable_last_year || '2023') + '); delta tidak dinilai sebagai kinerja.';
+    } else if (!py) {
+      message = '<strong>Tahun dasar ' + year + ':</strong> Menjadi titik acuan awal (indeks = 100) untuk perbandingan tahun-tahun berikutnya.';
+    } else {
+      message = '<strong>Tahun ' + year + ' sebanding dengan ' + py + ':</strong> Definisi pelaporan konsisten sehingga angka capaian dapat dibandingkan langsung.';
+    }
+
+    banner.innerHTML =
+      '<div class="context-banner-main">' +
+        '<span class="context-icon" aria-hidden="true">' + iconSvg + '</span>' +
+        '<span>' + message + '</span>' +
+      '</div>' +
+      '<button type="button" class="banner-link" data-open-details>Penjelasan metodologi →</button>';
+  }
+
+  // ---------- TIER 1: KPI SCORECARDS ----------
+  function kpiSparklineSvg(values, color, options) {
+    var opts = options || {};
+    var W = 180;
+    var H = 24;
+    var px = 5;
+    var py = 4;
+    var min = Math.min.apply(null, values);
+    var max = Math.max.apply(null, values);
+    var span = (max - min) || 1;
+    var pts = values.map(function (v, i) {
+      var x = px + (values.length === 1 ? (W - px * 2) / 2 : (i / (values.length - 1)) * (W - px * 2));
+      var y = H - py - ((v - min) / span) * (H - py * 2);
+      return { x: x, y: y, year: DATA.years[i] };
+    });
+
+    var areaPath = 'M ' + pts[0].x.toFixed(1) + ' ' + (H - 1);
+    pts.forEach(function (p) { areaPath += ' L ' + p.x.toFixed(1) + ' ' + p.y.toFixed(1); });
+    areaPath += ' L ' + pts[pts.length - 1].x.toFixed(1) + ' ' + (H - 1) + ' Z';
+
+    var segs = [];
+    for (var i = 1; i < pts.length; i += 1) {
+      var isDash = opts.dashReview && (isReviewYear(pts[i].year) || isReviewYear(pts[i - 1].year));
+      segs.push(
+        '<line x1="' + pts[i - 1].x.toFixed(1) + '" y1="' + pts[i - 1].y.toFixed(1) +
+        '" x2="' + pts[i].x.toFixed(1) + '" y2="' + pts[i].y.toFixed(1) +
+        '" stroke="' + color + '" stroke-width="1.8" stroke-linecap="round"' +
+        (isDash ? ' stroke-dasharray="3 2.5" opacity="0.7"' : '') + ' />'
+      );
+    }
+
+    var selIdx = DATA.years.indexOf(state.year);
+    var selPt = selIdx >= 0 ? pts[selIdx] : pts[pts.length - 1];
+
+    return '<svg class="kpi-sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">' +
+      '<path d="' + areaPath + '" fill="' + color + '" opacity="0.09" />' +
+      segs.join('') +
+      '<circle cx="' + selPt.x.toFixed(1) + '" cy="' + selPt.y.toFixed(1) + '" r="3.4" fill="#FFFFFF" stroke="' + color + '" stroke-width="2" />' +
+    '</svg>';
+  }
+
+  function renderKpiGrid() {
+    var grid = byId('kpiGrid');
+    if (!grid) return;
+    var year = state.year;
+    var cur = kpiAt(year);
+    var base = kpiAt(BASE_YEAR);
+    var py = prevYear(year);
+    var prev = py ? kpiAt(py) : null;
+    var review = isReviewYear(year);
+
+    var total = cur.timbulan_tahunan_ton;
+    var terkelola = cur.terkelola_tahunan_ton;
+    var belum = cur.belum_terkelola_tahunan_ton;
+    var pct = Math.max(0, Math.min(100, cur.persen_kelola));
+    var belumPct = total ? (belum / total) * 100 : 0;
+    var daily = total / 365;
+    var perCapita = cur.timbulan_kg_per_orang_hari;
+    var perCapitaMonthly = perCapita * 30.44;
+    var pendudukJt = cur.jumlah_penduduk_jiwa / 1000000;
+
+    var timbulanSeries = DATA.years.map(function (y) { return kpiAt(y).timbulan_tahunan_ton; });
+    var belumSeries = DATA.years.map(function (y) { return kpiAt(y).belum_terkelola_tahunan_ton; });
+    var perCapitaSeries = DATA.years.map(function (y) { return kpiAt(y).timbulan_kg_per_orang_hari; });
+
+    // KPI 1 pill: strictly follows comparability rule
+    var kelolaPill;
+    if (review) {
+      kelolaPill = '<span class="pill pill-warning">Perlu tinjau · tidak dibandingkan</span>';
+    } else if (!prev) {
+      kelolaPill = '<span class="pill pill-neutral">Tahun dasar (' + year + ')</span>';
+    } else {
+      var diffPp = cur.persen_kelola - prev.persen_kelola;
+      var cls = diffPp > 0 ? 'pill-success' : diffPp < 0 ? 'pill-warning' : 'pill-neutral';
+      kelolaPill = '<span class="pill ' + cls + '">' + signedNum(diffPp, 1) + ' pp vs ' + py + '</span>';
+    }
+
+    // KPI 2 pill: timbulan is verified comparable across all years
+    var timbulanPill = year === BASE_YEAR
+      ? '<span class="pill pill-neutral">Tahun dasar (2021 = 100)</span>'
+      : '<span class="pill pill-neutral">' + signedNum(cur.tumbuh_sampah, 2) + '% sejak ' + BASE_YEAR + '</span>';
+
+    // KPI 3 pill: clarify accounting gap meaning
+    var belumPill = review
+      ? '<span class="pill pill-warning">Perlu tinjau · selisih laporan</span>'
+      : '<span class="pill pill-neutral">Selisih laporan · bukan dibuang</span>';
+
+    // KPI 4 pill: per-capita change vs base year
+    var perCapitaDelta = base && base.timbulan_kg_per_orang_hari
+      ? ((perCapita / base.timbulan_kg_per_orang_hari) - 1) * 100
+      : 0;
+    var perCapitaPill;
+    if (year === BASE_YEAR) {
+      perCapitaPill = '<span class="pill pill-neutral">Tahun dasar (' + BASE_YEAR + ')</span>';
+    } else {
+      var capCls = perCapitaDelta < 0 ? 'pill-success' : perCapitaDelta > 0 ? 'pill-warning' : 'pill-neutral';
+      perCapitaPill = '<span class="pill ' + capCls + '">' + signedNum(perCapitaDelta, 2) + '% sejak ' + BASE_YEAR + '</span>';
+    }
+
+    var iconCheck = '<span class="kpi-icon ' + (review ? 'kpi-icon-neutral' : 'kpi-icon-teal') + '" aria-hidden="true"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 5.5L8.2 14l-4.2-4"/></svg></span>';
+    var iconVolume = '<span class="kpi-icon kpi-icon-blue" aria-hidden="true"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14.5L10 18l7-3.5M3 10.5L10 14l7-3.5M10 3L3 6.5 10 10l7-3.5L10 3z"/></svg></span>';
+    var iconGap = '<span class="kpi-icon ' + (review ? 'kpi-icon-amber' : 'kpi-icon-neutral') + '" aria-hidden="true"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7" stroke-dasharray="3.5 3"/><path d="M10 6.5V10l2.4 1.5"/></svg></span>';
+    var iconPerson = '<span class="kpi-icon kpi-icon-green" aria-hidden="true"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="6.5" r="3"/><path d="M4.2 16.5a5.8 5.8 0 0 1 11.6 0"/></svg></span>';
+
+    grid.innerHTML =
+      '<article class="kpi-card">' +
+        '<div class="kpi-top"><span class="kpi-label">Tercatat Terkelola</span>' + iconCheck + '</div>' +
+        '<div>' +
+          '<div class="kpi-value-wrap"><strong class="kpi-value">' + idNum(pct, 1) + '%</strong></div>' +
+          '<div class="kpi-sub"><strong>' + idNum(terkelola, 0) + '</strong> ton/tahun</div>' +
+          '<div class="kpi-visual">' +
+            '<div class="kpi-progress" role="img" aria-label="' + idNum(pct, 1) + ' persen tercatat terkelola">' +
+              '<span class="kpi-progress-fill' + (review ? ' is-review' : '') + '" style="width:' + pct.toFixed(2) + '%"></span>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="kpi-footer">' + kelolaPill + '</div>' +
+      '</article>' +
+
+      '<article class="kpi-card">' +
+        '<div class="kpi-top"><span class="kpi-label">Total Timbulan Sampah</span>' + iconVolume + '</div>' +
+        '<div>' +
+          '<div class="kpi-value-wrap"><strong class="kpi-value">' + idNum(total, 0) + '</strong><span class="kpi-unit">ton/thn</span></div>' +
+          '<div class="kpi-sub">≈ <strong>' + idNum(daily, 0) + '</strong> ton/hari</div>' +
+          '<div class="kpi-visual">' + kpiSparklineSvg(timbulanSeries, C.timbulan) + '</div>' +
+        '</div>' +
+        '<div class="kpi-footer">' + timbulanPill + '</div>' +
+      '</article>' +
+
+      '<article class="kpi-card">' +
+        '<div class="kpi-top"><span class="kpi-label">Belum Tercatat Terkelola</span>' + iconGap + '</div>' +
+        '<div>' +
+          '<div class="kpi-value-wrap"><strong class="kpi-value">' + idNum(belum, 0) + '</strong><span class="kpi-unit">ton/thn</span></div>' +
+          '<div class="kpi-sub"><strong>' + idNum(belumPct, 1) + '%</strong> dari total timbulan</div>' +
+          '<div class="kpi-visual">' + kpiSparklineSvg(belumSeries, review ? '#EA8600' : '#64748B', { dashReview: true }) + '</div>' +
+        '</div>' +
+        '<div class="kpi-footer">' + belumPill + '</div>' +
+      '</article>' +
+
+      '<article class="kpi-card">' +
+        '<div class="kpi-top"><span class="kpi-label">Timbulan per Kapita</span>' + iconPerson + '</div>' +
+        '<div>' +
+          '<div class="kpi-value-wrap"><strong class="kpi-value">' + idNum(perCapita, 2) + '</strong><span class="kpi-unit">kg/hr</span></div>' +
+          '<div class="kpi-sub">≈ ' + idNum(perCapitaMonthly, 0) + ' kg/bln · ' + idNum(pendudukJt, 2) + ' jt jiwa</div>' +
+          '<div class="kpi-visual">' + kpiSparklineSvg(perCapitaSeries, '#0D9488') + '</div>' +
+        '</div>' +
+        '<div class="kpi-footer">' + perCapitaPill + '</div>' +
+      '</article>';
+  }
+
+  // ---------- TIER 2A RIGHT: CONSOLIDATED READING GUIDE & INSIGHTS ----------
   function knownComposition(year) {
     return compositionRowsFor(year).filter(function (row) { return row.persen !== null; })
       .sort(function (a, b) { return b.persen - a.persen; });
   }
 
-  function renderHero() {
-    var year = state.year;
-    var cur = kpiAt(year);
-    var review = isReviewYear(year);
-    var total = cur.timbulan_tahunan_ton;
-    var terkelola = cur.terkelola_tahunan_ton;
-    var belum = cur.belum_terkelola_tahunan_ton;
-    var pct = Math.max(0, Math.min(100, cur.persen_kelola));
-    var daily = total / 365;
-    var box = byId('heroSummary');
-    if (!box) return;
-
-    box.className = 'hero-summary' + (review ? ' review' : '');
-    box.innerHTML =
-      '<div class="hero-main">' +
-        '<div class="hero-topline"><span class="hero-eyebrow">Tahun ' + year + '</span>' +
-          (review ? '<span class="hero-chip">perlu tinjau</span>' : '') +
-        '</div>' +
-        '<div class="hero-headline"><strong class="hero-number">' + idNum(pct, 1) + '%</strong>' +
-          '<span class="hero-title">sampah tercatat terkelola</span></div>' +
-        '<p class="hero-copy">Dari total <strong>' + idNum(total, 0) + ' ton</strong> sampah, sekitar <strong>' +
-          idNum(terkelola, 0) + ' ton</strong> tercatat terkelola. <strong>' + idNum(belum, 0) +
-          ' ton</strong> belum tercatat terkelola.</p>' +
-        '<div class="progress-track" role="img" aria-label="Tahun ' + year + ': ' + idNum(pct, 1) +
-          ' persen tercatat terkelola, ' + idNum(100 - pct, 1) + ' persen belum tercatat">' +
-          '<span class="progress-done" style="width:' + pct.toFixed(2) + '%"></span>' +
-        '</div>' +
-        '<div class="progress-legend">' +
-          '<span><i class="dot dot-terkelola"></i>Tercatat terkelola <strong>' + idNum(pct, 1) + '%</strong></span>' +
-          '<span><i class="dot dot-gray"></i>Belum tercatat <strong>' + idNum(100 - pct, 1) + '%</strong></span>' +
-        '</div>' +
-        '<p class="hero-explain">“Tercatat terkelola” berarti sampah masuk jalur pengurangan atau penanganan dalam laporan. Bukan berarti seluruh sampah sudah hilang dari lingkungan.</p>' +
-      '</div>' +
-      '<div class="hero-side">' +
-        '<div class="hero-stat"><span>Sampah dihasilkan</span><strong>' + idNum(total, 0) +
-          ' <small>ton/tahun</small></strong><em>≈ ' + idNum(daily, 0) + ' ton/hari</em></div>' +
-        '<div class="hero-stat"><span>Per orang</span><strong>' + idNum(cur.timbulan_kg_per_orang_hari, 2) +
-          ' <small>kg/hari</small></strong><em>≈ ' + idNum(cur.timbulan_kg_per_orang_hari * 30.44, 0) +
-          ' kg/bulan</em></div>' +
-      '</div>';
-
-    renderYearContext(review, prevYear(year));
-  }
-
-  function renderKeyFacts() {
-    var known = knownComposition(state.year);
-    var box = byId('keyFacts');
-    if (!box || !known.length) return;
-    var top1 = known[0];
-    var top2 = known[1] || { kategori: '', persen: 0 };
-    var focusSum = top1.persen + top2.persen;
-    var totals = DATA.years.map(function (year) { return kpiAt(year).timbulan_tahunan_ton; });
-    var min = Math.min.apply(null, totals) / 1000;
-    var max = Math.max.apply(null, totals) / 1000;
-
-    box.innerHTML =
-      '<article class="fact-card">' +
-        '<span class="fact-kicker">Isi sampah ' + state.year + '</span>' +
-        '<strong>' + escapeHtml(top1.kategori) + ' ' + idNum(top1.persen, 1) + '%</strong>' +
-        '<p>Disusul ' + escapeHtml(top2.kategori) + ' ' + idNum(top2.persen, 1) +
-          '%. Keduanya mencakup ' + idNum(focusSum, 1) + '% dari total sampah.</p>' +
-      '</article>' +
-      '<article class="fact-card">' +
-        '<span class="fact-kicker">Jumlah sampah</span>' +
-        '<strong>Relatif stabil</strong>' +
-        '<p>Rentang 2021–2025: ' + idNum(min, 0) + '–' + idNum(max, 0) +
-          ' ribu ton per tahun.</p>' +
-      '</article>' +
-      '<article class="fact-card">' +
-        '<span class="fact-kicker">Cakupan data</span>' +
-        '<strong>Agregat kota</strong>' +
-        '<p>Data tahunan, belum per kecamatan. Angka berasal dari laporan, bukan pengukuran lapangan.</p>' +
-      '</article>';
-  }
-
-  function renderYearContext(review, py) {
-    var note = byId('yearContextNote');
-    if (!note) return;
-    note.className = 'year-context-note' + (review ? ' review' : '');
-    if (review) {
-      note.innerHTML = '<strong>Tahun ' + state.year + ' perlu tinjau.</strong> ' +
-        'Cara mencatat 2024–2025 berbeda dari tahun sebelumnya, jadi angka ini tidak bisa dibandingkan dengan ' +
-        escapeHtml(py) + '. Pembanding terakhir yang setara: ' + escapeHtml(META.comparable_last_year || '—') +
-        '. Angka tetap ditampilkan, tetapi bukan penilaian kinerja.';
-    } else if (!py) {
-      note.innerHTML = '<strong>Tahun dasar ' + state.year + '.</strong> Belum ada tahun sebelumnya untuk pembanding.';
-    } else {
-      note.innerHTML = '<strong>Tahun ' + state.year + ' sebanding dengan ' + py +
-        '.</strong> Angka bisa dibandingkan langsung dengan tahun sebelumnya.';
-    }
-  }
-
   function renderReadingGuide() {
     var box = byId('readingGuide');
     if (!box) return;
+    var badge = byId('guideYearBadge');
+    if (badge) badge.textContent = String(state.year);
+
     var year = state.year;
     var cur = kpiAt(year);
     var py = prevYear(year);
     var prev = py ? kpiAt(py) : null;
     var review = isReviewYear(year);
-    var items = [];
 
+    var known = knownComposition(year);
+    var top1 = known[0] || { kategori: 'Sisa Makanan', persen: 0 };
+    var top2 = known[1] || { kategori: 'Plastik', persen: 0 };
+    var topSum = top1.persen + top2.persen;
+
+    var totals = DATA.years.map(function (y) { return kpiAt(y).timbulan_tahunan_ton; });
+    var minRb = Math.min.apply(null, totals) / 1000;
+    var maxRb = Math.max.apply(null, totals) / 1000;
+
+    var items = [];
     if (review) {
-      items.push('<li><strong>Yang terlihat:</strong> ' + idNum(cur.persen_kelola, 1) +
-        '% sampah tercatat terkelola pada ' + year + '.</li>');
-      items.push('<li><strong>Jangan disimpulkan:</strong> angka ' + year +
-        ' tidak bisa dibandingkan dengan tahun sebelumnya karena cara mencatatnya berubah. ' +
-        '<button type="button" class="text-link" data-open-details>Mengapa?</button></li>');
-      items.push('<li><strong>Yang tetap bisa dibaca:</strong> jumlah sampah, isi sampah, dan sampah per orang.</li>');
+      items.push(
+        '<div class="insight-item is-warning"><span class="insight-dot" aria-hidden="true"></span><div>' +
+          '<strong>Status ' + year + ' (Perlu Tinjau):</strong> Tercatat ' + idNum(cur.persen_kelola, 1) +
+          '% terkelola, tetapi perubahan definisi membuat angka ini tidak sebanding dengan tahun sebelumnya.' +
+        '</div></div>'
+      );
     } else if (py && prev) {
-      var prevPct = prev.persen_kelola;
-      var relation;
-      if (cur.persen_kelola > prevPct) {
-        relation = 'naik dari ' + idNum(prevPct, 1) + '% ke ' + idNum(cur.persen_kelola, 1) + '%';
-      } else if (cur.persen_kelola < prevPct) {
-        relation = 'turun dari ' + idNum(prevPct, 1) + '% ke ' + idNum(cur.persen_kelola, 1) + '%';
-      } else {
-        relation = 'tetap di ' + idNum(cur.persen_kelola, 1) + '%';
-      }
-      items.push('<li><strong>Tahun ' + year + ':</strong> ' + idNum(cur.persen_kelola, 1) +
-        '% sampah tercatat terkelola.</li>');
-      items.push('<li><strong>Dibanding ' + py + ':</strong> ' + relation + '.</li>');
-      items.push('<li><strong>Jumlah sampah:</strong> ' + idNum(cur.timbulan_tahunan_ton, 0) +
-        ' ton, relatif stabil.</li>');
+      var diff = cur.persen_kelola - prev.persen_kelola;
+      var trendWord = diff > 0 ? 'naik' : diff < 0 ? 'turun' : 'tetap';
+      items.push(
+        '<div class="insight-item is-teal"><span class="insight-dot" aria-hidden="true"></span><div>' +
+          '<strong>Capaian ' + year + ':</strong> ' + idNum(cur.persen_kelola, 1) + '% tercatat terkelola (' +
+          trendWord + ' dari ' + idNum(prev.persen_kelola, 1) + '% pada ' + py + ').' +
+        '</div></div>'
+      );
     } else {
-      items.push('<li><strong>Tahun dasar:</strong> ' + year + ' menjadi pembanding untuk tahun berikutnya.</li>');
-      items.push('<li><strong>Yang terlihat:</strong> ' + idNum(cur.persen_kelola, 1) +
-        '% sampah tercatat terkelola.</li>');
-      items.push('<li><strong>Jumlah sampah:</strong> ' + idNum(cur.timbulan_tahunan_ton, 0) + ' ton.</li>');
+      items.push(
+        '<div class="insight-item is-teal"><span class="insight-dot" aria-hidden="true"></span><div>' +
+          '<strong>Tahun Dasar ' + year + ':</strong> ' + idNum(cur.persen_kelola, 1) +
+          '% tercatat terkelola dari ' + idNum(cur.timbulan_tahunan_ton, 0) + ' ton timbulan.' +
+        '</div></div>'
+      );
     }
-    items.push('<li><strong>Ingat:</strong> angka berasal dari laporan, bukan pengukuran lapangan.</li>');
-    box.innerHTML = '<ul>' + items.join('') + '</ul>';
+
+    items.push(
+      '<div class="insight-item"><span class="insight-dot" aria-hidden="true"></span><div>' +
+        '<strong>Dominasi Komposisi:</strong> ' + escapeHtml(top1.kategori) + ' (' + idNum(top1.persen, 1) +
+        '%) dan ' + escapeHtml(top2.kategori) + ' (' + idNum(top2.persen, 1) + '%) mencapai <strong>' +
+        idNum(topSum, 1) + '%</strong> total sampah.' +
+      '</div></div>'
+    );
+
+    items.push(
+      '<div class="insight-item is-muted"><span class="insight-dot" aria-hidden="true"></span><div>' +
+        '<strong>Volume Stabil:</strong> Sepanjang 2021–2025, timbulan berada pada rentang sempit ' +
+        idNum(minRb, 0) + '–' + idNum(maxRb, 0) + ' ribu ton/tahun (data pelaporan agregat kota).' +
+      '</div></div>'
+    );
+
+    box.innerHTML = items.join('');
   }
 
   function renderKelolaNote() {
@@ -369,17 +575,17 @@
     var review = isReviewYear(state.year);
     note.innerHTML = '<strong>Tahun ' + state.year + ':</strong> ' + idNum(cur.persen_kelola, 1) +
       '% sampah tercatat terkelola. ' +
-      (review ? 'Angka ini perlu tinjau; bukan penilaian kinerja.' : 'Angka ini bisa dibandingkan dengan tahun sebelumnya.');
+      (review ? 'Periode ini berstatus perlu tinjau dan bukan penilaian kinerja.' : 'Angka sebanding dengan periode 2021–2023.');
   }
 
-  // ---------- line chart ----------
+  // ---------- LINE CHART (Timbulan & Indeks) ----------
   function renderLineChart(svg, config) {
-    var size = chartSize(svg, config.height || 280);
+    var size = chartSize(svg, config.height || 276);
     if (!size) return;
     var W = size.width;
     var H = size.height;
-    var narrow = W < 520;
-    var P = { top: narrow ? 30 : 32, right: narrow ? 12 : 18, bottom: 30, left: narrow ? 46 : 58 };
+    var narrow = W < 480;
+    var P = { top: 34, right: narrow ? 16 : 22, bottom: 32, left: narrow ? 46 : 56 };
     var plotW = W - P.left - P.right;
     var plotH = H - P.top - P.bottom;
     if (plotW < 60 || plotH < 60) return;
@@ -405,33 +611,35 @@
     if (config.forceZero) {
       scale = niceScale(0, dataMax, 4, true);
     } else {
-      var padding = (dataMax - dataMin) * 0.15 || 1;
+      var padding = (dataMax - dataMin) * 0.18 || 1;
       scale = niceScale(dataMin - padding, dataMax + padding, 4, false);
     }
     var y = function (value) {
       return P.top + plotH - ((value - scale.lo) / (scale.hi - scale.lo)) * plotH;
     };
 
-    // Area 2024–2025 ditandai karena definisi/cakupan berubah.
-    var breakIndexes = BREAK_YEARS.map(function (year) { return DATA.years.indexOf(year); })
-      .filter(function (index) { return index >= 0; });
-    var firstBreak = breakIndexes.length ? Math.min.apply(null, breakIndexes) : -1;
-    if (firstBreak >= 0) {
-      var breakStart = firstBreak === 0 ? P.left : (xs[firstBreak - 1] + xs[firstBreak]) / 2;
-      var breakEnd = W - P.right;
-      el('rect', {
-        x: breakStart, y: P.top, width: Math.max(0, breakEnd - breakStart), height: plotH,
-        'class': 'break-band', 'aria-hidden': 'true'
-      }, svg);
-      if (breakEnd - breakStart > 36) {
-        el('text', {
-          x: breakStart + (breakEnd - breakStart) / 2, y: P.top - 11,
-          'text-anchor': 'middle', 'class': 'break-label', 'aria-hidden': 'true'
-        }, svg, W < 470 ? 'perlu tinjau' : '2024–2025: perlu tinjau');
+    // Review period background band (2024–2025)
+    if (config.showBreakBand !== false) {
+      var breakIndexes = BREAK_YEARS.map(function (year) { return DATA.years.indexOf(year); })
+        .filter(function (index) { return index >= 0; });
+      var firstBreak = breakIndexes.length ? Math.min.apply(null, breakIndexes) : -1;
+      if (firstBreak >= 0) {
+        var breakStart = firstBreak === 0 ? P.left : (xs[firstBreak - 1] + xs[firstBreak]) / 2;
+        var breakEnd = W - P.right;
+        el('rect', {
+          x: breakStart, y: P.top, width: Math.max(0, breakEnd - breakStart), height: plotH, rx: 4,
+          'class': 'break-band', 'aria-hidden': 'true'
+        }, svg);
+        if (breakEnd - breakStart > 44) {
+          el('text', {
+            x: breakStart + (breakEnd - breakStart) / 2, y: P.top - 12,
+            'text-anchor': 'middle', 'class': 'break-label', 'aria-hidden': 'true'
+          }, svg, W < 440 ? 'perlu tinjau' : '2024–2025: perlu tinjau');
+        }
       }
     }
 
-    // Pita tahun terpilih: menghubungkan filter global ke grafik.
+    // Selected year highlight band
     var selectedIndex = DATA.years.indexOf(state.year);
     if (selectedIndex >= 0) {
       var bandStart = selectedIndex === 0 ? P.left : (xs[selectedIndex - 1] + xs[selectedIndex]) / 2;
@@ -442,17 +650,27 @@
       }, svg);
     }
 
+    // Horizontal gridlines & Y ticks
     scale.ticks.forEach(function (tick) {
       el('line', {
         x1: P.left, x2: W - P.right, y1: y(tick), y2: y(tick),
         'class': 'grid-line', 'aria-hidden': 'true'
       }, svg);
       el('text', {
-        x: P.left - 7, y: y(tick) + 3.5, 'text-anchor': 'end',
+        x: P.left - 8, y: y(tick) + 3.5, 'text-anchor': 'end',
         'class': 'tick', 'aria-hidden': 'true'
       }, svg, config.tickFormat ? config.tickFormat(tick) : String(tick));
     });
 
+    // Optional reference baseline (e.g., 100 for index chart)
+    if (config.baseline !== undefined && config.baseline >= scale.lo && config.baseline <= scale.hi) {
+      el('line', {
+        x1: P.left, x2: W - P.right, y1: y(config.baseline), y2: y(config.baseline),
+        'class': 'baseline-line', 'aria-hidden': 'true'
+      }, svg);
+    }
+
+    // X axis line & year labels
     el('line', {
       x1: P.left, x2: W - P.right, y1: P.top + plotH, y2: P.top + plotH,
       'class': 'axis', 'aria-hidden': 'true'
@@ -460,16 +678,21 @@
 
     DATA.years.forEach(function (year, index) {
       el('text', {
-        x: xs[index], y: H - 9, 'text-anchor': 'middle',
+        x: xs[index], y: H - 10, 'text-anchor': 'middle',
         'class': 'tick' + (year === state.year ? ' selected-tick' : ''),
         'aria-hidden': 'true'
       }, svg, String(year));
     });
 
+    // Optional shaded gap area with soft vertical gradient
     if (config.gapArea && config.series.length >= 2) {
+      var defs = el('defs', {}, svg);
+      var grad = el('linearGradient', { id: 'gapGrad', x1: '0', y1: '0', x2: '0', y2: '1' }, defs);
+      el('stop', { offset: '0%', 'stop-color': '#EA8600', 'stop-opacity': '0.16' }, grad);
+      el('stop', { offset: '100%', 'stop-color': '#EA8600', 'stop-opacity': '0.03' }, grad);
+
       var topValues = config.series[0].values;
       var bottomValues = config.series[1].values;
-      var area = '';
       var hasArea = true;
       topValues.forEach(function (value, index) {
         if (value === null || value === undefined || bottomValues[index] === null || bottomValues[index] === undefined) {
@@ -477,6 +700,7 @@
         }
       });
       if (hasArea) {
+        var area = '';
         topValues.forEach(function (value, index) {
           area += (index === 0 ? 'M' : 'L') + xs[index].toFixed(2) + ' ' + y(value).toFixed(2) + ' ';
         });
@@ -484,8 +708,29 @@
           area += 'L' + xs[i].toFixed(2) + ' ' + y(bottomValues[i]).toFixed(2) + ' ';
         }
         area += 'Z';
-        el('path', { d: area, 'class': 'gap-area', 'aria-hidden': 'true' }, svg);
+        el('path', { d: area, fill: 'url(#gapGrad)', 'aria-hidden': 'true' }, svg);
       }
+    }
+
+    // Optional soft area gradient under each curve (used by Indeks chart)
+    if (config.softArea) {
+      var aDefs = el('defs', {}, svg);
+      config.series.forEach(function (series, sIdx) {
+        var gid = 'lineGrad_' + (svg.id || 'c') + '_' + sIdx;
+        var lg = el('linearGradient', { id: gid, x1: '0', y1: '0', x2: '0', y2: '1' }, aDefs);
+        el('stop', { offset: '0%', 'stop-color': series.color, 'stop-opacity': '0.11' }, lg);
+        el('stop', { offset: '100%', 'stop-color': series.color, 'stop-opacity': '0.00' }, lg);
+        var d = '';
+        series.values.forEach(function (v, idx) {
+          if (v === null || v === undefined || !isFinite(v)) return;
+          d += (idx === 0 ? 'M' : 'L') + xs[idx].toFixed(2) + ' ' + y(v).toFixed(2) + ' ';
+        });
+        if (d) {
+          d += 'L' + xs[xs.length - 1].toFixed(2) + ' ' + (P.top + plotH).toFixed(2) +
+            ' L' + xs[0].toFixed(2) + ' ' + (P.top + plotH).toFixed(2) + ' Z';
+          el('path', { d: d, fill: 'url(#' + gid + ')', 'aria-hidden': 'true' }, svg);
+        }
+      });
     }
 
     if (selectedIndex >= 0) {
@@ -495,63 +740,102 @@
       }, svg);
     }
 
-    config.series.forEach(function (series, seriesIndex) {
-      // Segmen yang menyentuh 2024–2025 dibuat putus-putus agar tidak
-      // dibaca sebagai kelanjutan tren yang sebanding.
+    // Draw lines
+    config.series.forEach(function (series) {
       series.values.forEach(function (value, index) {
         if (index === 0) return;
         var prevValue = series.values[index - 1];
         if (value === null || value === undefined || !isFinite(value) ||
             prevValue === null || prevValue === undefined || !isFinite(prevValue)) return;
-        var segmentReview = isReviewYear(DATA.years[index]) || isReviewYear(DATA.years[index - 1]);
+        var segmentReview = config.dashedBreak !== false &&
+          (isReviewYear(DATA.years[index]) || isReviewYear(DATA.years[index - 1]));
         el('line', {
           x1: xs[index - 1], y1: y(prevValue), x2: xs[index], y2: y(value),
-          stroke: series.color, 'stroke-width': 2.4,
+          stroke: series.color, 'stroke-width': 2.5,
           'stroke-linecap': 'round', 'stroke-linejoin': 'round',
           'stroke-dasharray': segmentReview ? '5 4' : null,
-          opacity: segmentReview ? 0.8 : 1,
+          opacity: segmentReview ? 0.78 : 1,
           'aria-hidden': 'true'
         }, svg);
       });
+    });
 
+    // Draw points & non-overlapping selected labels
+    var selectedYs = [];
+    config.series.forEach(function (series, seriesIndex) {
       series.values.forEach(function (value, index) {
         if (value === null || value === undefined || !isFinite(value)) return;
         var year = DATA.years[index];
         var tipValue = config.tipFormat ? config.tipFormat(value) : idNum(value, 2);
         var selected = index === selectedIndex;
+        var cy = y(value);
+
+        if (selected) {
+          el('circle', {
+            cx: xs[index], cy: cy, r: 10,
+            fill: series.color, opacity: '0.14', 'aria-hidden': 'true'
+          }, svg);
+        }
+
         var point = el('circle', {
-          cx: xs[index], cy: y(value), r: selected ? 5.4 : 3.8,
-          fill: '#fff', stroke: series.color, 'stroke-width': 2,
+          cx: xs[index], cy: cy, r: selected ? 5.5 : 3.8,
+          fill: '#FFFFFF', stroke: series.color, 'stroke-width': selected ? 2.4 : 2,
           'class': 'chart-point' + (selected ? ' point-selected' : ''),
-          role: 'img', tabindex: '0',
-          'aria-label': series.name + ' ' + year + ': ' + tipValue + (isReviewYear(year) ? ', perlu tinjau' : ''),
+          role: 'button', tabindex: '0',
+          dataYear: year,
+          dataTipColor: series.color,
+          'aria-label': series.name + ' ' + year + ': ' + tipValue + (isReviewYear(year) && config.dashedBreak !== false ? ', perlu tinjau' : ''),
           dataTip: series.name + '\nTahun: ' + year + '\nNilai: ' + tipValue +
-            (isReviewYear(year) ? '\nStatus: perlu tinjau' : '')
+            (isReviewYear(year) && config.dashedBreak !== false ? '\nStatus: perlu tinjau' : '')
         }, svg);
         el('title', {}, point, series.name + ' ' + year + ': ' + tipValue);
+
         if (selected && config.showSelectedLabels !== false) {
-          var labelAnchor = 'middle';
-          var labelX = xs[index];
-          if (index === 0) { labelAnchor = 'start'; labelX += 5; }
-          else if (index === DATA.years.length - 1) { labelAnchor = 'end'; labelX -= 6; }
-          el('text', {
-            x: labelX, y: Math.max(P.top + 11, y(value) - 10 - seriesIndex * 2),
-            'text-anchor': labelAnchor, 'class': 'value-label', 'aria-hidden': 'true'
-          }, svg, config.labelFormat ? config.labelFormat(value) : idNum(value, 2));
+          selectedYs.push({ seriesIndex: seriesIndex, y: cy, value: value, color: series.color });
         }
       });
     });
+
+    // Smart label placement to avoid overlap when two series are very close (e.g. 2021–2023)
+    if (selectedYs.length && selectedIndex >= 0) {
+      selectedYs.sort(function (a, b) { return a.y - b.y; });
+      var labelAnchor = 'middle';
+      var labelX = xs[selectedIndex];
+      if (selectedIndex === 0) { labelAnchor = 'start'; labelX += 8; }
+      else if (selectedIndex === DATA.years.length - 1) { labelAnchor = 'end'; labelX -= 8; }
+
+      selectedYs.forEach(function (item, idx) {
+        var formatted = config.labelFormat ? config.labelFormat(item.value) : idNum(item.value, 1);
+        if (idx > 0 && Math.abs(item.y - selectedYs[idx - 1].y) < 2) {
+          var prevFormatted = config.labelFormat ? config.labelFormat(selectedYs[idx - 1].value) : idNum(selectedYs[idx - 1].value, 1);
+          if (formatted === prevFormatted) return;
+        }
+        var labelY = item.y - 12;
+        if (idx > 0 && Math.abs(item.y - selectedYs[idx - 1].y) < 22) {
+          labelY = Math.min(P.top + plotH - 6, item.y + 19);
+        } else {
+          labelY = Math.max(P.top + 10, labelY);
+        }
+        el('text', {
+          x: labelX, y: labelY,
+          'text-anchor': labelAnchor,
+          'class': 'value-label',
+          fill: item.color,
+          'aria-hidden': 'true'
+        }, svg, formatted);
+      });
+    }
   }
 
   function renderTimbulanChart() {
     var cur = kpiAt(state.year);
     var review = isReviewYear(state.year);
     renderLineChart(byId('chartTimbulan'), {
-      height: 280,
+      height: 276,
       forceZero: true,
       gapArea: true,
       series: [
-        { name: 'Sampah dihasilkan', color: C.timbulan, values: DATA.years.map(function (year) { return kpiAt(year).timbulan_tahunan_ton; }) },
+        { name: 'Timbulan sampah', color: C.timbulan, values: DATA.years.map(function (year) { return kpiAt(year).timbulan_tahunan_ton; }) },
         { name: 'Tercatat terkelola', color: C.terkelola, values: DATA.years.map(function (year) { return kpiAt(year).terkelola_tahunan_ton; }) }
       ],
       tickFormat: function (value) { return idNum(value / 1000, 0) + ' rb'; },
@@ -560,21 +844,25 @@
     });
 
     var ratio = cur.timbulan_tahunan_ton ? (cur.belum_terkelola_tahunan_ton / cur.timbulan_tahunan_ton) * 100 : null;
-    var text = 'Tahun <strong>' + state.year + '</strong>: <strong>' + idNum(cur.timbulan_tahunan_ton, 0) +
-      ' ton</strong> sampah dihasilkan; <strong>' + idNum(cur.terkelola_tahunan_ton, 0) +
-      ' ton</strong> tercatat terkelola. Selisih <strong>' + idNum(cur.belum_terkelola_tahunan_ton, 0) +
-      ' ton</strong> (' + idNum(ratio, 1) + '%) belum tercatat; ini bukan volume sampah yang dibuang ke lingkungan.';
-    if (review) text += ' Angka ' + state.year + ' perlu tinjau karena cara pencatatan berubah.';
-    byId('gapNote').innerHTML = text;
+    var text = '<strong>' + state.year + ':</strong> Timbulan ' + idNum(cur.timbulan_tahunan_ton, 0) +
+      ' ton · Tercatat ' + idNum(cur.terkelola_tahunan_ton, 0) + ' ton · Selisih belum tercatat ' +
+      idNum(cur.belum_terkelola_tahunan_ton, 0) + ' ton (' + idNum(ratio, 1) + '%).';
+    if (review) text += ' Garis putus-putus menandakan periode perlu tinjau.';
+    var gapNote = byId('gapNote');
+    if (gapNote) gapNote.innerHTML = text;
   }
 
-  // ---------- index chart ----------
+  // ---------- INDEX CHART (Promoted to Row 2C) ----------
   function renderIndeksChart() {
-    var base = kpiAt(DATA.years[0]);
+    var base = kpiAt(BASE_YEAR);
+    var cur = kpiAt(state.year);
     renderLineChart(byId('chartIndeks'), {
-      height: 230,
+      height: 272,
       forceZero: false,
-      showSelectedLabels: false,
+      baseline: 100,
+      softArea: true,
+      showBreakBand: false,
+      dashedBreak: false,
       series: [
         {
           name: 'Indeks timbulan',
@@ -588,19 +876,30 @@
         }
       ],
       tickFormat: function (value) { return idNum(value, 0); },
-      tipFormat: function (value) { return idNum(value, 2) + ' (2021 = 100)'; }
+      tipFormat: function (value) { return idNum(value, 2) + ' (2021 = 100)'; },
+      labelFormat: function (value) { return idNum(value, 1); }
     });
+
+    var note = byId('indeksNote');
+    if (note) {
+      if (state.year === BASE_YEAR) {
+        note.innerHTML = '<strong>Tahun dasar ' + BASE_YEAR + ':</strong> Kedua indeks bernilai 100 sebagai titik acuan perbandingan.';
+      } else {
+        note.innerHTML = '<strong>Sejak ' + BASE_YEAR + ' hingga ' + state.year + ':</strong> Penduduk tumbuh ' +
+          signedNum(cur.tumbuh_penduduk, 2) + '%, sedangkan timbulan ' + signedNum(cur.tumbuh_sampah, 2) +
+          '% — sampah per orang turun tipis.';
+      }
+    }
   }
 
-  // ---------- capaian bar chart ----------
+  // ---------- CAPAIAN BAR CHART ----------
   function renderKelolaChart() {
     var svg = byId('chartKelola');
-    var size = chartSize(svg, 230);
+    var size = chartSize(svg, 282);
     if (!size) return;
     var W = size.width;
     var H = size.height;
-    var narrow = W < 520;
-    var P = { top: 20, right: narrow ? 18 : 24, bottom: 30, left: 40 };
+    var P = { top: 34, right: 18, bottom: 32, left: 42 };
     var plotW = W - P.left - P.right;
     var plotH = H - P.top - P.bottom;
     if (plotW < 60 || plotH < 60) return;
@@ -610,10 +909,10 @@
 
     var defs = el('defs', {}, svg);
     var pattern = el('pattern', {
-      id: 'hatchReview', width: 6, height: 6, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)'
+      id: 'hatchReview', width: 7, height: 7, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)'
     }, defs);
-    el('rect', { width: 6, height: 6, fill: '#eef2f6' }, pattern);
-    el('line', { x1: 0, y1: 0, x2: 0, y2: 6, stroke: '#9aa8b7', 'stroke-width': 2 }, pattern);
+    el('rect', { width: 7, height: 7, fill: '#F1F5F9' }, pattern);
+    el('line', { x1: 0, y1: 0, x2: 0, y2: 7, stroke: '#94A3B8', 'stroke-width': 1.8 }, pattern);
 
     var y = function (value) { return P.top + plotH - (value / 100) * plotH; };
     var baseline = P.top + plotH;
@@ -624,9 +923,9 @@
         'class': 'grid-line', 'aria-hidden': 'true'
       }, svg);
       el('text', {
-        x: P.left - 7, y: y(tick) + 3.5, 'text-anchor': 'end',
+        x: P.left - 8, y: y(tick) + 3.5, 'text-anchor': 'end',
         'class': 'tick', 'aria-hidden': 'true'
-      }, svg, String(tick));
+      }, svg, tick + '%');
     });
 
     el('line', {
@@ -635,36 +934,49 @@
     }, svg);
 
     var slot = plotW / DATA.years.length;
-    var barWidth = Math.min(46, slot * 0.56);
+    var barWidth = Math.min(50, slot * 0.54);
     DATA.years.forEach(function (year, index) {
       var center = P.left + slot * (index + 0.5);
       var value = kpiAt(year).persen_kelola;
       var review = isReviewYear(year);
-      var barClass = review ? 'bar-review' : 'bar-capaian';
       var selected = year === state.year;
-      var tip = 'Tercatat terkelola\nTahun: ' + year + '\nPersentase: ' + idNum(value, 1) + '%\n' +
-        (review ? 'Status: perlu tinjau — cara pencatatan berbeda' : 'Angka bisa dibandingkan dengan tahun sebelumnya');
-      var bar = el('rect', {
-        x: center - barWidth / 2, y: y(value), width: barWidth,
-        height: Math.max(0, baseline - y(value)), rx: 3,
-        'class': barClass + (selected ? ' bar-selected' : ''),
-        role: 'img', tabindex: '0',
-        'aria-label': year + ': ' + idNum(value, 1) + '% sampah tercatat terkelola' + (review ? ', perlu tinjau' : ''),
+      var barClass = (review ? 'bar-review' : 'bar-capaian') +
+        (selected ? ' bar-selected' : ' bar-dimmed');
+
+      var tip = 'Tercatat Terkelola (' + year + ')\nPersentase: ' + idNum(value, 1) + '%\nVolume: ' +
+        idNum(kpiAt(year).terkelola_tahunan_ton, 0) + ' ton\nStatus: ' +
+        (review ? 'Perlu tinjau (definisi berbeda)' : 'Sebanding (2021–2023)');
+
+      var barTop = y(value);
+      var barH = Math.max(0, baseline - barTop);
+      var bar = el('path', {
+        d: roundedTopRectPath(center - barWidth / 2, barTop, barWidth, barH, 5),
+        'class': barClass,
+        role: 'button', tabindex: '0',
+        dataYear: year,
+        dataTipColor: review ? '#94A3B8' : C.terkelola,
+        'aria-label': 'Tahun ' + year + ': ' + idNum(value, 1) + '% sampah tercatat terkelola' + (review ? ', perlu tinjau' : '') + '. Klik untuk memilih tahun ini.',
         dataTip: tip
       }, svg);
       el('title', {}, bar, year + ': ' + idNum(value, 1) + '% tercatat terkelola' + (review ? ' (perlu tinjau)' : ''));
+
+      // Positioned cleanly ABOVE the bar (P.top = 34 ensures zero collision even at 99.1%)
       el('text', {
-        x: center, y: Math.max(P.top + 12, y(value) - 6),
-        'text-anchor': 'middle', 'class': 'value-label', 'aria-hidden': 'true'
+        x: center, y: barTop - 9,
+        'text-anchor': 'middle',
+        'class': selected ? 'value-label' : 'value-label-muted',
+        'aria-hidden': 'true'
       }, svg, idNum(value, 1) + '%' + (review ? '*' : ''));
+
       el('text', {
-        x: center, y: H - 9, 'text-anchor': 'middle',
-        'class': 'tick' + (selected ? ' selected-tick' : ''), 'aria-hidden': 'true'
+        x: center, y: H - 10, 'text-anchor': 'middle',
+        'class': 'tick' + (selected ? ' selected-tick' : ''),
+        'aria-hidden': 'true'
       }, svg, String(year));
     });
   }
 
-  // ---------- composition ----------
+  // ---------- COMPOSITION CHART ----------
   function compositionRowsFor(year) {
     return DATA.komposisi.filter(function (row) { return row.tahun === year; });
   }
@@ -685,16 +997,16 @@
 
   function renderKomposisiChart() {
     var svg = byId('chartKomposisi');
-    var size = chartSize(svg, 310);
+    var size = chartSize(svg, 312);
     if (!size) return;
     var W = size.width;
     var H = size.height;
     var narrow = W < 430;
     var P = {
-      top: 7,
-      right: narrow ? 38 : 48,
-      bottom: 25,
-      left: Math.min(122, Math.max(86, W * 0.29))
+      top: 8,
+      right: narrow ? 44 : 54,
+      bottom: 26,
+      left: Math.min(118, Math.max(88, W * 0.27))
     };
     var plotW = W - P.left - P.right;
     var plotH = H - P.top - P.bottom;
@@ -707,16 +1019,16 @@
     if (!rows.length) return;
     var known = rows.filter(function (row) { return row.persen !== null; });
     var maxValue = Math.max.apply(null, known.map(function (row) { return row.persen; }).concat([1]));
-    var xMax = Math.max(10, Math.ceil((maxValue * 1.08) / 5) * 5);
+    var xMax = Math.max(10, Math.ceil((maxValue * 1.1) / 5) * 5);
     var x = function (value) { return P.left + (value / xMax) * plotW; };
     var rowHeight = plotH / rows.length;
-    var barHeight = Math.min(16, rowHeight * 0.58);
+    var barHeight = Math.min(17, rowHeight * 0.56);
     var ticks = compositionTicks(xMax);
 
     ticks.forEach(function (tick) {
       el('line', {
         x1: x(tick), x2: x(tick), y1: P.top, y2: P.top + plotH,
-        'class': 'grid-line', 'aria-hidden': 'true'
+        'class': tick === 0 ? 'axis' : 'grid-line', 'aria-hidden': 'true'
       }, svg);
       el('text', {
         x: x(tick), y: H - 7, 'text-anchor': 'middle',
@@ -727,46 +1039,101 @@
     rows.forEach(function (row, index) {
       var centerY = P.top + rowHeight * index + rowHeight / 2;
       var label = row.kategori;
+      var isFocus = !!COMPOSITION_FOCUS[label];
+
       el('text', {
-        x: P.left - 7, y: centerY + 3.5, 'text-anchor': 'end',
-        'class': 'tick', 'aria-hidden': 'true'
+        x: P.left - 10, y: centerY + 4, 'text-anchor': 'end',
+        'class': isFocus ? 'tick-cat tick-cat-focus' : 'tick-cat',
+        'aria-hidden': 'true'
       }, svg, label);
 
       if (row.persen === null) {
-        var naWidth = Math.max(26, plotW * 0.2);
-        var na = el('rect', {
-          x: P.left, y: centerY - barHeight / 2, width: naWidth, height: barHeight, rx: 3,
+        var naWidth = Math.max(32, plotW * 0.16);
+        var na = el('path', {
+          d: roundedRightRectPath(P.left, centerY - barHeight / 2, naWidth, barHeight, 4),
           'class': 'bar-na', role: 'img', tabindex: '0',
+          dataTipColor: '#94A3B8',
           'aria-label': label + ' ' + state.year + ': tidak tersedia di sumber',
-          dataTip: label + '\nTahun: ' + state.year + '\nStatus: NA — tidak tersedia di sumber'
+          dataTip: label + ' (' + state.year + ')\nStatus: NA — tidak tersedia di sumber'
         }, svg);
         el('title', {}, na, label + ': NA');
         el('text', {
-          x: P.left + 7, y: centerY + 3.5,
+          x: P.left + naWidth + 8, y: centerY + 4,
           'class': 'na-note', 'aria-hidden': 'true'
         }, svg, 'NA');
         return;
       }
 
-      var isFocus = !!COMPOSITION_FOCUS[label];
       var barClass = label === 'Sisa Makanan' ? 'bar-komposisi-focus' :
         label === 'Plastik' ? 'bar-komposisi-plastik' : 'bar-default';
-      var bar = el('rect', {
-        x: P.left, y: centerY - barHeight / 2, width: Math.max(2, x(row.persen) - P.left),
-        height: barHeight, rx: 3, 'class': barClass,
+      var tipColor = label === 'Sisa Makanan' ? C.focus :
+        label === 'Plastik' ? C.plastik : C.other;
+      var bar = el('path', {
+        d: roundedRightRectPath(P.left, centerY - barHeight / 2, Math.max(4, x(row.persen) - P.left), barHeight, 4),
+        'class': barClass,
         role: 'img', tabindex: '0',
+        dataTipColor: tipColor,
         'aria-label': label + ' ' + state.year + ': ' + idNum(row.persen, 2) + '%' + (isFocus ? ', kategori fokus' : ''),
-        dataTip: label + '\nTahun: ' + state.year + '\nKomposisi: ' + idNum(row.persen, 2) + '%' + (isFocus ? '\nFokus pemilahan' : '')
+        dataTip: label + ' (' + state.year + ')\nKomposisi: ' + idNum(row.persen, 2) + '%' +
+          (isFocus ? '\nKategori: Dominan / fokus pemilahan' : '\nKategori: Lainnya')
       }, svg);
       el('title', {}, bar, label + ' ' + state.year + ': ' + idNum(row.persen, 2) + '%');
 
-      var labelX = x(row.persen) + 6;
-      var anchor = 'start';
-      if (labelX + 36 > W - 4) { labelX = x(row.persen) - 6; anchor = 'end'; }
       el('text', {
-        x: labelX, y: centerY + 3.5, 'text-anchor': anchor,
-        'class': 'value-label', 'aria-hidden': 'true'
+        x: x(row.persen) + 8, y: centerY + 4, 'text-anchor': 'start',
+        'class': isFocus ? 'value-label' : 'value-label-muted',
+        'aria-hidden': 'true'
       }, svg, idNum(row.persen, 1) + '%');
+    });
+  }
+
+  // ---------- TIER 3: INTERACTIVE TABLES (SEARCH, FILTER, SORT, PAGINATION) ----------
+  function getFilteredCompositionRows() {
+    var rows = compositionRowsFor(state.year).slice();
+    var q = state.search.trim().toLowerCase();
+
+    if (q) {
+      rows = rows.filter(function (r) {
+        return r.kategori.toLowerCase().indexOf(q) !== -1;
+      });
+    }
+
+    if (state.filter === 'focus') {
+      rows = rows.filter(function (r) { return !!COMPOSITION_FOCUS[r.kategori]; });
+    } else if (state.filter === 'other') {
+      rows = rows.filter(function (r) { return r.persen !== null && !COMPOSITION_FOCUS[r.kategori]; });
+    } else if (state.filter === 'na') {
+      rows = rows.filter(function (r) { return r.persen === null; });
+    }
+
+    rows.sort(function (a, b) {
+      if (state.sortKey === 'kategori') {
+        var cmp = a.kategori.localeCompare(b.kategori, 'id');
+        return state.sortDir === 'asc' ? cmp : -cmp;
+      }
+      // Sort by persen: keep NA at bottom
+      if (a.persen === null && b.persen === null) return 0;
+      if (a.persen === null) return 1;
+      if (b.persen === null) return -1;
+      return state.sortDir === 'asc' ? a.persen - b.persen : b.persen - a.persen;
+    });
+
+    return rows;
+  }
+
+  function updateSortIndicators() {
+    var buttons = document.querySelectorAll('#komposisiTable .sort-btn');
+    Array.prototype.forEach.call(buttons, function (btn) {
+      var key = btn.getAttribute('data-sort');
+      var icon = btn.querySelector('.sort-icon');
+      if (!icon) return;
+      if (key === state.sortKey) {
+        icon.textContent = state.sortDir === 'asc' ? '▲' : '▼';
+        btn.setAttribute('aria-sort', state.sortDir === 'asc' ? 'ascending' : 'descending');
+      } else {
+        icon.textContent = '';
+        btn.removeAttribute('aria-sort');
+      }
     });
   }
 
@@ -775,45 +1142,127 @@
     if (!table) return;
     var tbody = table.querySelector('tbody');
     var tfoot = table.querySelector('tfoot');
-    var rows = orderedComposition(compositionRowsFor(state.year));
-    var known = rows.filter(function (row) { return row.persen !== null; });
-    var missing = rows.filter(function (row) { return row.persen === null; });
-    var total = known.reduce(function (sum, row) { return sum + row.persen; }, 0);
+    var pagBox = byId('komposisiPagination');
+
+    var allYearRows = compositionRowsFor(state.year);
+    var allKnown = allYearRows.filter(function (row) { return row.persen !== null; });
+    var allMissing = allYearRows.filter(function (row) { return row.persen === null; });
+    var totalAll = allKnown.reduce(function (sum, row) { return sum + row.persen; }, 0);
+    var maxVal = Math.max.apply(null, allKnown.map(function (r) { return r.persen; }).concat([1]));
+
+    var filtered = getFilteredCompositionRows();
+    var totalFiltered = filtered.length;
+    var effectiveSize = (state.isPrinting || state.pageSize === 0) ? Math.max(1, totalFiltered) : state.pageSize;
+    var totalPages = Math.max(1, Math.ceil(totalFiltered / effectiveSize));
+    if (state.page > totalPages) state.page = totalPages;
+    if (state.page < 1) state.page = 1;
+
+    var startIdx = (state.page - 1) * effectiveSize;
+    var pageRows = filtered.slice(startIdx, startIdx + effectiveSize);
 
     table.setAttribute('aria-label', 'Tabel komposisi sampah tahun ' + state.year);
-    tbody.innerHTML = rows.map(function (row) {
-      if (row.persen === null) {
-        return '<tr class="row-na"><td>' + escapeHtml(row.kategori) +
-          '<span class="chip-na">NA</span></td><td class="num">—</td><td>Tidak tersedia di sumber</td></tr>';
-      }
-      var focus = !!COMPOSITION_FOCUS[row.kategori];
-      return '<tr class="' + (focus ? 'row-focus' : '') + '"><td>' + escapeHtml(row.kategori) +
-        (focus ? '<span class="chip-focus">terbesar</span>' : '') +
-        '</td><td class="num">' + idNum(row.persen, 2) + '%</td><td>' +
-        (focus ? 'Dua kategori terbesar' : '—') + '</td></tr>';
-    }).join('');
+    updateSortIndicators();
 
-    tfoot.innerHTML = '<tr><th scope="row">Total terisi</th><td class="num">' + idNum(total, 2) +
-      '%</td><td>' + known.length + ' kategori terisi' + (missing.length ? ' · ' + missing.length + ' NA' : '') + '</td></tr>';
+    if (!pageRows.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="table-empty"><div class="table-empty-wrap">' +
+        '<span>Tidak ada kategori yang cocok dengan filter atau pencarian saat ini.</span>' +
+        '<button type="button" class="page-btn" data-reset-table>Reset pencarian &amp; filter</button>' +
+      '</div></td></tr>';
+    } else {
+      tbody.innerHTML = pageRows.map(function (row) {
+        if (row.persen === null) {
+          return '<tr class="row-na">' +
+            '<td>' + escapeHtml(row.kategori) + '</td>' +
+            '<td class="num">—</td>' +
+            '<td class="cell-bar"><span class="pill pill-neutral">NA</span></td>' +
+            '<td>Tidak tersedia pada data sumber</td>' +
+          '</tr>';
+        }
+        var isFocus = !!COMPOSITION_FOCUS[row.kategori];
+        var barColor = row.kategori === 'Sisa Makanan' ? C.focus :
+          row.kategori === 'Plastik' ? C.plastik : C.other;
+        var widthPct = Math.max(2, (row.persen / maxVal) * 100);
+        return '<tr class="' + (isFocus ? 'row-focus' : '') + '">' +
+          '<td>' + escapeHtml(row.kategori) + '</td>' +
+          '<td class="num">' + idNum(row.persen, 2) + '%</td>' +
+          '<td class="cell-bar"><div class="inline-bar-track"><span class="inline-bar-fill" style="width:' + widthPct.toFixed(1) + '%;background:' + barColor + '"></span></div></td>' +
+          '<td>' + (isFocus ? '<span class="pill pill-blue">Kategori dominan</span>' : '<span class="pill pill-neutral">Lainnya</span>') + '</td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    tfoot.innerHTML = '<tr>' +
+      '<th scope="row">Total terisi (' + state.year + ')</th>' +
+      '<td class="num">' + idNum(totalAll, 2) + '%</td>' +
+      '<td class="cell-bar"></td>' +
+      '<td>' + allKnown.length + ' kategori terisi' + (allMissing.length ? ' · ' + allMissing.length + ' NA' : '') + '</td>' +
+    '</tr>';
+
+    if (pagBox) {
+      var showFrom = totalFiltered === 0 ? 0 : startIdx + 1;
+      var showTo = Math.min(totalFiltered, startIdx + pageRows.length);
+      pagBox.innerHTML =
+        '<div class="pagination-left">' +
+          '<span>Menampilkan <strong>' + showFrom + '–' + showTo + '</strong> dari <strong>' + totalFiltered + '</strong> kategori</span>' +
+          '<label class="sr-only" for="pageSizeSelect">Jumlah baris per halaman</label>' +
+          '<select id="pageSizeSelect" class="page-size-select">' +
+            '<option value="5"' + (state.pageSize === 5 ? ' selected' : '') + '>5 / halaman</option>' +
+            '<option value="0"' + (state.pageSize === 0 ? ' selected' : '') + '>Tampilkan semua</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="pagination-right">' +
+          '<button type="button" class="page-btn" data-page-nav="prev"' + (state.page <= 1 ? ' disabled' : '') + '>Sebelumnya</button>' +
+          '<span>Halaman ' + state.page + ' / ' + totalPages + '</span>' +
+          '<button type="button" class="page-btn" data-page-nav="next"' + (state.page >= totalPages ? ' disabled' : '') + '>Berikutnya</button>' +
+        '</div>';
+    }
 
     var note = byId('komposisiNote');
     if (note) {
-      if (missing.length) {
-        note.textContent = state.year + ' menampilkan ' + known.length + ' kategori terisi; ' +
-          missing.length + ' kategori (Kayu Ranting) tidak tersedia di sumber. Sejak 2025 ada 9 kategori, ' +
-          'jadi perbandingan antar-tahun perlu hati-hati.';
+      if (allMissing.length) {
+        note.textContent = state.year + ' memuat ' + allKnown.length + ' kategori terisi; ' +
+          allMissing.length + ' kategori (Kayu Ranting) berstatus NA di sumber. Mulai 2025 tersedia 9 kategori sehingga perbandingan lintas tahun perlu hati-hati.';
       } else {
-        note.textContent = state.year + ' menampilkan ' + known.length + ' kategori terisi, termasuk Kayu Ranting (2,00%) ' +
+        note.textContent = state.year + ' memuat ' + allKnown.length + ' kategori terisi, termasuk Kayu Ranting (2,00%) ' +
           'yang tidak tersedia pada 2021–2024. Semua tahun berjumlah 100%, tetapi set kategori berubah.';
       }
     }
   }
 
+  function renderYearlyTable() {
+    var tbody = byId('yearlyTableBody');
+    if (!tbody) return;
+    tbody.innerHTML = DATA.years.map(function (year) {
+      var k = kpiAt(year);
+      var review = isReviewYear(year);
+      var active = year === state.year;
+      var statusBadge = review
+        ? '<span class="pill pill-warning">Perlu tinjau</span>'
+        : year === BASE_YEAR
+          ? '<span class="pill pill-neutral">Tahun dasar</span>'
+          : '<span class="pill pill-success">Sebanding</span>';
+      return '<tr class="' + (active ? 'is-active' : '') + '" data-row-year="' + year + '" tabindex="0" aria-label="Pilih tahun ' + year + '">' +
+        '<td>' + year + (review ? '*' : '') + '</td>' +
+        '<td class="num">' + idNum(k.timbulan_tahunan_ton, 0) + '</td>' +
+        '<td class="num">' + idNum(k.pengurangan_tahunan_ton, 0) + '</td>' +
+        '<td class="num">' + idNum(k.penanganan_tahunan_ton, 0) + '</td>' +
+        '<td class="num">' + idNum(k.terkelola_tahunan_ton, 0) + ' (' + idNum(k.persen_kelola, 1) + '%)</td>' +
+        '<td class="num">' + idNum(k.belum_terkelola_tahunan_ton, 0) + '</td>' +
+        '<td class="num">' + idNum(k.timbulan_kg_per_orang_hari, 2) + ' kg</td>' +
+        '<td class="num">' + idNum(k.jumlah_penduduk_jiwa, 0) + '</td>' +
+        '<td>' + statusBadge + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
   function renderKomposisiSection() {
     renderKomposisiChart();
     renderKomposisiTable();
+    renderYearlyTable();
     var badge = byId('komposisiYearBadge');
     if (badge) badge.textContent = String(state.year);
+    var tabYear = byId('tabKomposisiYear');
+    if (tabYear) tabYear.textContent = String(state.year);
 
     var known = knownComposition(state.year);
     var summary = byId('komposisiSummary');
@@ -822,13 +1271,13 @@
       var top2 = known[1];
       var rest = known.length - 2;
       var focusSum = top1.persen + (top2 ? top2.persen : 0);
-      summary.innerHTML = '<strong>' + escapeHtml(top1.kategori) + '</strong> dan <strong>' +
-        escapeHtml(top2.kategori) + '</strong> mencakup <strong>' + idNum(focusSum, 1) +
-        '%</strong> dari total sampah ' + state.year + '. Sisanya tersebar di ' + rest + ' kategori lain.';
+      summary.innerHTML = '<strong>' + escapeHtml(top1.kategori) + '</strong> &amp; <strong>' +
+        escapeHtml(top2.kategori) + '</strong> menyumbang <strong>' + idNum(focusSum, 1) +
+        '%</strong> total sampah ' + state.year + '; sisanya di ' + rest + ' kategori lain.';
     }
   }
 
-  // ---------- donut & gap panel ----------
+  // ---------- DONUT & MANAGEMENT BREAKDOWN ----------
   function arcPath(cx, cy, outer, inner, startAngle, endAngle) {
     var large = (endAngle - startAngle) > Math.PI ? 1 : 0;
     var x1 = cx + outer * Math.cos(startAngle);
@@ -846,34 +1295,41 @@
   function renderDonut() {
     var svg = byId('chartDonut');
     var cur = kpiAt(state.year);
-    var total = cur.terkelola_tahunan_ton + cur.belum_terkelola_tahunan_ton;
+    var total = cur.timbulan_tahunan_ton;
     clearSvg(svg);
     if (!total) return;
 
-    var pKelola = cur.terkelola_tahunan_ton / total;
+    var pengurangan = cur.pengurangan_tahunan_ton || 0;
+    var penanganan = cur.penanganan_tahunan_ton || 0;
+    var belum = cur.belum_terkelola_tahunan_ton || 0;
+    var segTotal = pengurangan + penanganan + belum;
+    if (!segTotal) return;
+
     var segments = [
-      { name: 'Tercatat terkelola', value: cur.terkelola_tahunan_ton, pct: pKelola * 100, color: C.donutTer, key: 'terkelola' },
-      { name: 'Belum tercatat', value: cur.belum_terkelola_tahunan_ton, pct: (1 - pKelola) * 100, color: C.donutBelum, key: 'belum' }
+      { name: 'Pengurangan', value: pengurangan, pct: (pengurangan / segTotal) * 100, color: C.pengurangan, key: 'pengurangan' },
+      { name: 'Penanganan', value: penanganan, pct: (penanganan / segTotal) * 100, color: C.penanganan, key: 'penanganan' },
+      { name: 'Belum tercatat', value: belum, pct: (belum / segTotal) * 100, color: C.donutBelum, key: 'belum' }
     ];
 
-    var cx = 80;
-    var cy = 80;
-    var outer = 62;
-    var inner = 39;
+    var cx = 90;
+    var cy = 90;
+    var outer = 76;
+    var inner = 54;
     var angle = -Math.PI / 2;
 
     segments.forEach(function (segment) {
       if (segment.value <= 0) return;
-      var sweep = Math.min((segment.value / total) * Math.PI * 2, Math.PI * 2 - 0.0001);
+      var sweep = Math.min((segment.value / segTotal) * Math.PI * 2, Math.PI * 2 - 0.0001);
       var path = el('path', {
         d: arcPath(cx, cy, outer, inner, angle, angle + sweep),
         fill: segment.color,
         'class': 'donut-seg donut-' + segment.key,
         role: 'img', tabindex: '0',
-        'aria-label': segment.name + ': ' + idNum(segment.value, 2) + ' ton (' + idNum(segment.pct, 2) + '%)',
-        dataTip: segment.name + '\nNilai: ' + idNum(segment.value, 2) + ' ton\nProporsi: ' + idNum(segment.pct, 2) + '%'
+        dataTipColor: segment.color,
+        'aria-label': segment.name + ': ' + idNum(segment.value, 2) + ' ton (' + idNum(segment.pct, 1) + '%)',
+        dataTip: segment.name + ' (' + state.year + ')\nVolume: ' + idNum(segment.value, 0) + ' ton\nProporsi: ' + idNum(segment.pct, 1) + '%'
       }, svg);
-      el('title', {}, path, segment.name + ': ' + idNum(segment.pct, 2) + '%');
+      el('title', {}, path, segment.name + ': ' + idNum(segment.pct, 1) + '%');
       angle += sweep;
     });
 
@@ -882,49 +1338,49 @@
       'class': 'donut-center-value', 'aria-hidden': 'true'
     }, svg, idNum(cur.persen_kelola, 1) + '%');
     el('text', {
-      x: cx, y: cy + 14, 'text-anchor': 'middle',
+      x: cx, y: cy + 16, 'text-anchor': 'middle',
       'class': 'donut-center-label', 'aria-hidden': 'true'
     }, svg, 'tercatat');
 
-    byId('donutLegend').innerHTML = segments.map(function (segment) {
-      return '<div class="row"><span class="swatch donut-swatch" style="background:' + segment.color + '"></span>' +
-        '<span><strong>' + segment.name + '</strong> — ' + idNum(segment.value, 0) + ' ton (' +
-        idNum(segment.pct, 2) + '%)</span></div>';
-    }).join('');
+    var legendBox = byId('donutLegend');
+    if (legendBox) {
+      legendBox.innerHTML = segments.map(function (segment) {
+        return '<div class="donut-leg-item">' +
+          '<span class="donut-leg-left"><span class="donut-swatch" style="background:' + segment.color + '"></span>' +
+          '<span>' + segment.name + '</span></span>' +
+          '<span class="donut-leg-val">' + idNum(segment.pct, 1) + '%</span>' +
+        '</div>';
+      }).join('');
+    }
   }
 
   function renderKesenjangan() {
     var cur = kpiAt(state.year);
-    var review = isReviewYear(state.year);
     var ratio = cur.timbulan_tahunan_ton ? (cur.belum_terkelola_tahunan_ton / cur.timbulan_tahunan_ton) * 100 : null;
     var badge = byId('kesenjanganYearBadge');
     if (badge) badge.textContent = String(state.year);
     renderDonut();
 
-    var html = '<div class="big' + (review ? ' big-review' : '') + '">' +
-      idNum(cur.belum_terkelola_tahunan_ton, 0) + ' ton' +
-      '<span class="muted"> belum tercatat terkelola (' + idNum(ratio, 1) + '%)</span></div>';
-    if (review) {
-      html += '<p class="review-note"><strong>Perlu tinjau.</strong> Angka ' + state.year +
-        ' memakai cara pencatatan berbeda; ini bukan penilaian kinerja. ' +
-        '<button type="button" class="text-link" data-open-details>Penjelasan</button></p>';
-    }
-    html += '<p class="plain-note"><strong>Belum tercatat bukan berarti dibuang ke lingkungan.</strong> ' +
-      'Ini selisih antara total sampah dan yang tercatat terkelola.</p>';
-
     var rows = [
-      ['Sampah dihasilkan', idNum(cur.timbulan_tahunan_ton, 0) + ' ton'],
-      ['Tercatat terkelola', idNum(cur.terkelola_tahunan_ton, 0) + ' ton (' + idNum(cur.persen_kelola, 1) + '%)'],
-      ['Belum tercatat', idNum(cur.belum_terkelola_tahunan_ton, 0) + ' ton'],
-      ['Per orang per hari', idNum(cur.timbulan_kg_per_orang_hari, 2) + ' kg']
+      ['Jalur Pengurangan', idNum(cur.pengurangan_tahunan_ton, 0) + ' ton (' + idNum(cur.persen_pengurangan, 1) + '%)', false, C.pengurangan],
+      ['Jalur Penanganan', idNum(cur.penanganan_tahunan_ton, 0) + ' ton (' + idNum(cur.persen_penanganan, 1) + '%)', false, C.penanganan],
+      ['Total Tercatat Terkelola', idNum(cur.terkelola_tahunan_ton, 0) + ' ton (' + idNum(cur.persen_kelola, 1) + '%)', true, null],
+      ['Belum Tercatat', idNum(cur.belum_terkelola_tahunan_ton, 0) + ' ton (' + idNum(ratio, 1) + '%)', false, C.donutBelum]
     ];
-    html += rows.map(function (row) {
-      return '<div class="row"><span>' + row[0] + '</span><span>' + row[1] + '</span></div>';
+
+    var html = rows.map(function (row) {
+      var dot = row[3] ? '<span class="bk-dot" style="background:' + row[3] + '" aria-hidden="true"></span>' : '';
+      return '<div class="breakdown-row' + (row[2] ? ' is-total' : '') + '">' +
+        '<span class="breakdown-label">' + dot + row[0] + '</span>' +
+        '<span>' + row[1] + '</span></div>';
     }).join('');
-    byId('kesenjanganPanel').innerHTML = html;
+    html += '<p class="card-footnote"><strong>Belum tercatat</strong> adalah selisih total timbulan dan yang tercatat terkelola, bukan volume sampah yang dibuang ke lingkungan.</p>';
+
+    var panel = byId('kesenjanganPanel');
+    if (panel) panel.innerHTML = html;
   }
 
-  // ---------- details ----------
+  // ---------- DETAILS DRAWER ----------
   function renderSumber() {
     var doi = META.zenodo_doi || '10.5281/zenodo.24240544';
     var url = META.zenodo_url || 'https://zenodo.org/records/24240544';
@@ -934,18 +1390,21 @@
       'Dataset bersih: DOI <a href="' + escapeHtml(url) + '" target="_blank" rel="noopener">' + escapeHtml(doi) + '</a> · berkas Restricted (metadata/DOI publik).',
       'Catatan: keterangan lisensi di rekaman Zenodo bukan pengganti hak redistribusi penyedia data asli.'
     ];
-    byId('sumberList').innerHTML = items.map(function (item) { return '<li>' + item + '</li>'; }).join('');
+    var list = byId('sumberList');
+    if (list) list.innerHTML = items.map(function (item) { return '<li>' + item + '</li>'; }).join('');
   }
 
   function badgeFor(status) {
     var value = String(status || '').toUpperCase();
-    if (value === 'LULUS') return '<span class="badge badge-lulus">LULUS</span>';
-    if (value === 'CATATAN') return '<span class="badge badge-catatan">CATATAN</span>';
-    return '<span class="badge badge-tinjau">PERLU TINJAU</span>';
+    if (value === 'LULUS') return '<span class="pill pill-success">LULUS</span>';
+    if (value === 'CATATAN') return '<span class="pill pill-warning">CATATAN</span>';
+    return '<span class="pill pill-danger">PERLU TINJAU</span>';
   }
 
   function renderValidasi() {
-    byId('validasiBody').innerHTML = (DATA.validasi || []).map(function (row) {
+    var body = byId('validasiBody');
+    if (!body) return;
+    body.innerHTML = (DATA.validasi || []).map(function (row) {
       return '<tr><td>' + escapeHtml(row.pemeriksaan) + '</td><td>' + badgeFor(row.status) +
         '</td><td>' + escapeHtml(row.hasil) + '</td></tr>';
     }).join('');
@@ -958,8 +1417,8 @@
     var filled = rows.filter(function (row) { return row.persen !== null; }).length;
     var missing = rows.length - filled;
     var status = review
-      ? '<span class="badge badge-tinjau">perlu tinjau</span> cara mencatat 2024–2025 berbeda; angka tidak untuk dibandingkan.'
-      : '<span class="badge badge-netral">sebanding</span> angka dapat dibandingkan dengan tahun sebelumnya.';
+      ? '<span class="pill pill-danger">perlu tinjau</span> cara mencatat 2024–2025 berbeda; angka tidak untuk dibandingkan.'
+      : '<span class="pill pill-success">sebanding</span> angka dapat dibandingkan dengan tahun sebelumnya.';
 
     var items = [
       '<strong>Tahun ' + state.year + '</strong> — ' + status,
@@ -969,64 +1428,66 @@
       'Daur ulang + bahan baku (metrik tambahan): ' + idNum(cur.persen_recycling_rate, 2) + '%. Komponen sumber: ' +
         idNum(cur.jml_daur_ulang_ton, 2) + ' ton daur ulang + ' + idNum(cur.jml_bahan_baku_ton, 2) + ' ton bahan baku.' +
         (review ? ' Komponen ini praktis sama dengan pengurangan/penanganan, sehingga bukan metrik daur ulang independen.' : ''),
-      'Komposisi: ' + filled + ' kategori terisi' + (missing ? ' dan ' + missing + ' tidak tersedia' : '') +
-        '; lihat catatan set kategori di panel ini.'
+      'Komposisi: ' + filled + ' kategori terisi' + (missing ? ' dan ' + missing + ' tidak tersedia (NA)' : '') +
+        '; lihat catatan metodologi di panel ini.'
     ];
-    byId('konteksList').innerHTML = items.map(function (item) { return '<li>' + item + '</li>'; }).join('');
+    var list = byId('konteksList');
+    if (list) list.innerHTML = items.map(function (item) { return '<li>' + item + '</li>'; }).join('');
   }
 
-  // ---------- sorotan ----------
-  function renderCBQ() {
-    var known = knownComposition(state.year);
-    var top1 = known[0] || { kategori: 'Kategori terbesar', persen: 0 };
-    var top2 = known[1] || { kategori: 'kategori berikutnya', persen: 0 };
-    var topSum = top1.persen + top2.persen;
-    var totals = DATA.years.map(function (year) { return kpiAt(year).timbulan_tahunan_ton; });
-    var min = Math.min.apply(null, totals) / 1000;
-    var max = Math.max.apply(null, totals) / 1000;
-
-    var items = [
-      '<li><strong>' + escapeHtml(top1.kategori) + ' dan ' + escapeHtml(top2.kategori) +
-        ' mendominasi.</strong> Keduanya mencakup ' + idNum(topSum, 1) + '% dari komposisi ' + state.year +
-        '. Ini dua kategori paling besar untuk dipilah.</li>',
-      '<li><strong>Jumlah sampah relatif stabil.</strong> Sepanjang 2021–2025, sampah yang dihasilkan berkisar ' +
-        idNum(min, 0) + '–' + idNum(max, 0) + ' ribu ton per tahun.</li>',
-      '<li><strong>Hati-hati membandingkan 2024–2025.</strong> Cara pencatatan berubah, jadi angka pengelolaan ' +
-        'kedua tahun itu bukan penilaian kinerja.</li>'
-    ];
-    byId('cbqList').innerHTML = items.join('');
-  }
-
-  // ---------- year filter ----------
+  // ---------- YEAR STATE & TAB SWITCHING ----------
   function renderYearDependent() {
     var headerYear = byId('headerYear');
     if (headerYear) headerYear.textContent = String(state.year);
-    renderHero();
-    renderKeyFacts();
+    renderYearPills();
+    renderContextBanner();
+    renderKpiGrid();
+    renderReadingGuide();
     renderTimbulanChart();
     renderKelolaChart();
     renderKelolaNote();
     renderIndeksChart();
     renderKomposisiSection();
     renderKesenjangan();
-    renderReadingGuide();
     renderKonteks();
-    renderCBQ();
   }
 
   function setYear(year, options) {
     var opts = options || {};
     if (DATA.years.indexOf(year) === -1) year = LATEST_YEAR;
     state.year = year;
+    state.page = 1;
     var select = byId('yearSelect');
     if (select) select.value = String(year);
     renderYearDependent();
     if (opts.updateUrl) writeYearToUrl(year, !!opts.replace);
   }
 
-  // ---------- dialog ----------
+  function setTableTab(tab) {
+    state.tableTab = tab;
+    var isKomp = tab === 'komposisi';
+    var btnKomp = byId('tabKomposisi');
+    var btnTah = byId('tabTahunan');
+    var panelKomp = byId('panelKomposisi');
+    var panelTah = byId('panelTahunan');
+    var toolbar = byId('komposisiToolbar');
+
+    if (btnKomp) {
+      btnKomp.classList.toggle('active', isKomp);
+      btnKomp.setAttribute('aria-selected', String(isKomp));
+    }
+    if (btnTah) {
+      btnTah.classList.toggle('active', !isKomp);
+      btnTah.setAttribute('aria-selected', String(!isKomp));
+    }
+    if (panelKomp) panelKomp.hidden = !isKomp;
+    if (panelTah) panelTah.hidden = isKomp;
+    if (toolbar) toolbar.hidden = !isKomp;
+  }
+
+  // ---------- DIALOG ACCESSIBILITY ----------
   function setExpanded(value) {
-    ['detailsToggle', 'bannerDetails'].forEach(function (id) {
+    ['detailsToggle', 'glossaryToggle'].forEach(function (id) {
       var button = byId(id);
       if (button) button.setAttribute('aria-expanded', String(value));
     });
@@ -1040,16 +1501,22 @@
     });
   }
 
-  function openDetails(invoker) {
+  function openDetails(invoker, scrollToId) {
     var panel = byId('detailsPanel');
     var backdrop = byId('detailsBackdrop');
-    if (!panel || !panel.hidden) return;
-    lastFocus = invoker || document.activeElement;
-    panel.hidden = false;
-    if (backdrop) backdrop.hidden = false;
-    document.body.classList.add('dialog-open');
-    setExpanded(true);
-    byId('detailsClose').focus();
+    if (!panel) return;
+    if (panel.hidden) {
+      lastFocus = invoker || document.activeElement;
+      panel.hidden = false;
+      if (backdrop) backdrop.hidden = false;
+      document.body.classList.add('dialog-open');
+      setExpanded(true);
+      byId('detailsClose').focus();
+    }
+    if (scrollToId) {
+      var target = byId(scrollToId);
+      if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
 
   function closeDetails() {
@@ -1087,14 +1554,14 @@
     }
   }
 
-  // ---------- init ----------
+  // ---------- INIT & EVENTS ----------
   function populateYearSelect() {
     var select = byId('yearSelect');
     if (!select) return;
     DATA.years.forEach(function (year) {
       var option = document.createElement('option');
       option.value = String(year);
-      option.textContent = String(year) + (isReviewYear(year) ? ' · perlu tinjau' : '');
+      option.textContent = 'Tahun ' + year + (isReviewYear(year) ? ' · perlu tinjau' : '');
       select.appendChild(option);
     });
   }
@@ -1118,28 +1585,6 @@
     var ids = ['chartTimbulan', 'chartKelola', 'chartIndeks', 'chartKomposisi'];
     var printRestoreTimer = null;
     var printMedia = window.matchMedia ? window.matchMedia('print') : null;
-    var printDetails = [];
-
-    function openPrintDetails() {
-      ['.plain-details', '.table-details'].forEach(function (selector) {
-        var node = document.querySelector(selector);
-        if (node && !node.open) {
-          node.open = true;
-          if (printDetails.indexOf(node) === -1) printDetails.push(node);
-        }
-      });
-    }
-
-    function restorePrintDetails() {
-      var nodes = printDetails.slice();
-      printDetails = [];
-      nodes.forEach(function (node) { node.open = false; });
-      // Chrome dapat mengembalikan state cetak setelah afterprint; tutup lagi
-      // sebentar setelahnya agar halaman tidak tertinggal dalam keadaan terbuka.
-      window.setTimeout(function () {
-        nodes.forEach(function (node) { node.open = false; });
-      }, 300);
-    }
 
     function cancelPrintRestore() {
       if (printRestoreTimer) {
@@ -1148,19 +1593,25 @@
       }
     }
 
-    function restoreAfterPrint() {
+    function enterPrint() {
       cancelPrintRestore();
-      // Chrome dapat mengambil snapshot cetak setelah afterprint; tunda render
-      // ukuran layar agar viewBox cetak tidak sempat tertimpa.
+      state.isPrinting = true;
+      renderKomposisiTable();
+      renderResponsiveCharts();
+    }
+
+    function exitPrint() {
+      cancelPrintRestore();
       printRestoreTimer = window.setTimeout(function () {
         printRestoreTimer = null;
+        state.isPrinting = false;
+        renderKomposisiTable();
         renderResponsiveCharts();
-      }, 1500);
+      }, 800);
     }
 
     if ('ResizeObserver' in window) {
       var observer = new ResizeObserver(function () {
-        // Saat print, callback rAF tidak dijalankan sebelum snapshot; render sinkron.
         if (printMedia && printMedia.matches) renderResponsiveCharts();
         else scheduleCharts();
       });
@@ -1175,45 +1626,53 @@
       cancelPrintRestore();
       scheduleCharts();
     }, { passive: true });
-    window.addEventListener('beforeprint', function () {
-      cancelPrintRestore();
-      openPrintDetails();
-      renderResponsiveCharts();
-    });
-    window.addEventListener('afterprint', function () {
-      restorePrintDetails();
-      restoreAfterPrint();
-    });
+
+    window.addEventListener('beforeprint', enterPrint);
+    window.addEventListener('afterprint', exitPrint);
     if (printMedia && printMedia.addEventListener) {
       printMedia.addEventListener('change', function (event) {
-        if (event.matches) {
-          cancelPrintRestore();
-          openPrintDetails();
-          renderResponsiveCharts();
-        } else {
-          restorePrintDetails();
-          restoreAfterPrint();
-        }
+        if (event.matches) enterPrint();
+        else exitPrint();
       });
     }
     window.addEventListener('scroll', hideTooltip, { passive: true });
   }
 
   function bindEvents() {
+    // Year select (mobile)
     var select = byId('yearSelect');
-    select.addEventListener('change', function () {
-      setYear(parseInt(this.value, 10), { updateUrl: true });
-    });
+    if (select) {
+      select.addEventListener('change', function () {
+        setYear(parseInt(this.value, 10), { updateUrl: true });
+      });
+    }
 
+    // Segmented year pills (desktop)
+    var pills = byId('yearPills');
+    if (pills) {
+      pills.addEventListener('click', function (event) {
+        var btn = event.target && event.target.closest ? event.target.closest('[data-select-year]') : null;
+        if (!btn) return;
+        setYear(parseInt(btn.getAttribute('data-select-year'), 10), { updateUrl: true });
+      });
+    }
+
+    // Drawer triggers
     var toggle = byId('detailsToggle');
-    toggle.addEventListener('click', function () {
-      var panel = byId('detailsPanel');
-      if (panel.hidden) openDetails(this);
-      else closeDetails();
-    });
+    if (toggle) {
+      toggle.addEventListener('click', function () {
+        var panel = byId('detailsPanel');
+        if (panel.hidden) openDetails(this);
+        else closeDetails();
+      });
+    }
 
-    var banner = byId('bannerDetails');
-    if (banner) banner.addEventListener('click', function () { openDetails(this); });
+    var glossaryBtn = byId('glossaryToggle');
+    if (glossaryBtn) {
+      glossaryBtn.addEventListener('click', function () {
+        openDetails(this, 'glossarySection');
+      });
+    }
 
     var close = byId('detailsClose');
     if (close) close.addEventListener('click', closeDetails);
@@ -1230,6 +1689,108 @@
       openDetails(link);
     });
 
+    // Table tabs
+    var tabKomp = byId('tabKomposisi');
+    var tabTah = byId('tabTahunan');
+    if (tabKomp) tabKomp.addEventListener('click', function () { setTableTab('komposisi'); });
+    if (tabTah) tabTah.addEventListener('click', function () { setTableTab('tahunan'); });
+
+    // Search input
+    var search = byId('komposisiSearch');
+    if (search) {
+      search.addEventListener('input', function () {
+        state.search = this.value;
+        state.page = 1;
+        renderKomposisiTable();
+      });
+    }
+
+    // Filter chips
+    var chips = byId('komposisiFilterChips');
+    if (chips) {
+      chips.addEventListener('click', function (event) {
+        var btn = event.target && event.target.closest ? event.target.closest('[data-filter]') : null;
+        if (!btn) return;
+        state.filter = btn.getAttribute('data-filter');
+        state.page = 1;
+        Array.prototype.forEach.call(chips.querySelectorAll('.filter-chip'), function (c) {
+          c.classList.toggle('active', c === btn);
+        });
+        renderKomposisiTable();
+      });
+    }
+
+    // Table sorting & empty-state reset
+    var kompTable = byId('komposisiTable');
+    if (kompTable) {
+      kompTable.addEventListener('click', function (event) {
+        var resetBtn = event.target && event.target.closest ? event.target.closest('[data-reset-table]') : null;
+        if (resetBtn) {
+          state.search = '';
+          state.filter = 'all';
+          state.page = 1;
+          var searchEl = byId('komposisiSearch');
+          if (searchEl) searchEl.value = '';
+          var chipsEl = byId('komposisiFilterChips');
+          if (chipsEl) {
+            Array.prototype.forEach.call(chipsEl.querySelectorAll('.filter-chip'), function (c) {
+              c.classList.toggle('active', c.getAttribute('data-filter') === 'all');
+            });
+          }
+          renderKomposisiTable();
+          return;
+        }
+        var btn = event.target && event.target.closest ? event.target.closest('[data-sort]') : null;
+        if (!btn) return;
+        var key = btn.getAttribute('data-sort');
+        if (state.sortKey === key) {
+          state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          state.sortKey = key;
+          state.sortDir = key === 'kategori' ? 'asc' : 'desc';
+        }
+        state.page = 1;
+        renderKomposisiTable();
+      });
+    }
+
+    // Pagination & page size
+    var pagBox = byId('komposisiPagination');
+    if (pagBox) {
+      pagBox.addEventListener('click', function (event) {
+        var btn = event.target && event.target.closest ? event.target.closest('[data-page-nav]') : null;
+        if (!btn || btn.disabled) return;
+        var dir = btn.getAttribute('data-page-nav');
+        state.page += dir === 'next' ? 1 : -1;
+        renderKomposisiTable();
+      });
+      pagBox.addEventListener('change', function (event) {
+        if (event.target && event.target.id === 'pageSizeSelect') {
+          state.pageSize = parseInt(event.target.value, 10) || 0;
+          state.page = 1;
+          renderKomposisiTable();
+        }
+      });
+    }
+
+    // Yearly table row click -> select year
+    var yearlyBody = byId('yearlyTableBody');
+    if (yearlyBody) {
+      yearlyBody.addEventListener('click', function (event) {
+        var tr = event.target && event.target.closest ? event.target.closest('[data-row-year]') : null;
+        if (!tr) return;
+        setYear(parseInt(tr.getAttribute('data-row-year'), 10), { updateUrl: true });
+      });
+      yearlyBody.addEventListener('keydown', function (event) {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        var tr = event.target && event.target.closest ? event.target.closest('[data-row-year]') : null;
+        if (!tr) return;
+        event.preventDefault();
+        setYear(parseInt(tr.getAttribute('data-row-year'), 10), { updateUrl: true });
+      });
+    }
+
+    // Browser history back/forward
     window.addEventListener('popstate', function () {
       var year = readYearFromUrl();
       setYear(year === null ? LATEST_YEAR : year, { updateUrl: false });
@@ -1243,34 +1804,27 @@
     renderValidasi();
 
     renderLegend('legendTimbulan', [
-      { name: 'Sampah dihasilkan', color: C.timbulan },
+      { name: 'Timbulan', color: C.timbulan },
       { name: 'Tercatat terkelola', color: C.terkelola },
-      { name: 'Belum tercatat', color: C.gap, area: true }
+      { name: 'Selisih belum tercatat', color: C.gap, area: true }
     ]);
     renderLegend('legendKelola', [
-      { name: 'tercatat terkelola', color: C.terkelola, bar: true },
-      { name: 'perlu tinjau', bar: true, na: true }
+      { name: 'Sebanding', color: C.terkelola, bar: true },
+      { name: 'Perlu tinjau', bar: true, na: true }
     ]);
     renderLegend('legendIndeks', [
-      { name: 'Sampah dihasilkan (2021 = 100)', color: C.timbulan },
-      { name: 'Penduduk (2021 = 100)', color: C.penduduk }
+      { name: 'Timbulan', color: C.timbulan },
+      { name: 'Penduduk', color: C.penduduk }
     ]);
     renderLegend('legendKomposisi', [
-      { name: 'Sisa Makanan', color: C.focus },
-      { name: 'Plastik', color: C.plastik },
-      { name: 'Kategori lain', color: C.other },
-      { name: 'NA / tidak tersedia', na: true }
+      { name: 'Sisa Makanan', color: C.focus, dot: true },
+      { name: 'Plastik', color: C.plastik, dot: true },
+      { name: 'Lainnya', color: C.other, dot: true },
+      { name: 'NA', na: true }
     ]);
 
     var caption = byId('chartCaptionTimbulan');
-    if (caption) caption.textContent = '· sumbu Y: ribu ton, dari nol';
-
-    var advanced = document.querySelector('.advanced-details');
-    if (advanced) {
-      advanced.addEventListener('toggle', function () {
-        if (advanced.open) window.requestAnimationFrame(renderIndeksChart);
-      });
-    }
+    if (caption) caption.textContent = 'Sumbu Y dalam ribu ton (mulai dari nol)';
 
     ['chartTimbulan', 'chartKelola', 'chartIndeks', 'chartKomposisi', 'chartDonut'].forEach(function (id) {
       bindTooltips(byId(id));

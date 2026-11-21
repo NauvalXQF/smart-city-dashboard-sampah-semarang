@@ -2,13 +2,14 @@
 
 Prototipe dashboard statis (HTML + CSS + JavaScript, tanpa dependensi runtime) untuk Tugas Besar **VISDAT Kelompok 4 — Smart City: Perancangan Dashboard Pengelolaan Sampah Kota Semarang**, Universitas Diponegoro.
 
-Dashboard menyajikan ringkasan agregat per tahun untuk Kota Semarang dan dirancang dengan pola **Shneiderman's Mantra** (*Overview First → Zoom & Filter → Details on Demand*). Lapisan atas memakai bahasa awam; istilah teknis, rumus, dan validasi diturunkan ke panel detail.
+Dashboard menyajikan ringkasan agregat per tahun untuk Kota Semarang dengan pola **Shneiderman's Mantra** (*Overview First → Zoom & Filter → Details on Demand*) dan pendekatan antarmuka **Material Design 3 (Light Mode)** bergaya *Google Analytics 4 / Looker Studio*. Lapisan atas memakai bahasa ringkas yang cepat dipindai; glosarium istilah, rumus, dan tabel validasi diturunkan ke panel *slide-over drawer*.
 
-| Zona | Isi | Idiom visual |
+| Lapisan | Isi | Idiom visual |
 |---|---|---|
-| Ringkasan | Satu angka utama “sampah tercatat terkelola”, tonase tahunan, angka per orang, tiga fakta kunci, dan glosarium | Hero + progress bar + kartu fakta |
-| Perubahan dari Tahun ke Tahun | Sampah dihasilkan vs tercatat terkelola; persentase per tahun; panduan membaca; indeks timbulan vs penduduk di lapisan lanjutan | Line chart, bar chart, area selisih, `<details>` |
-| Isi Sampah & Pengelolaan | Komposisi kategori + tabel angka; donut tercatat vs belum tercatat; sorotan tahun terpilih | Horizontal bar, donut, kartu sorotan |
+| Header & Filter Global | Judul, badge cakupan agregat kota, pemilih tahun tersegmentasi (2021–2025) + dropdown mobile, strip status keterbandingan kontekstual, serta tombol Glosarium & Catatan | Sticky light app bar, segmented pills, notice strip |
+| Ringkasan KPI | Empat scorecard metrik inti: persentase tercatat terkelola, total timbulan, belum tercatat terkelola, dan timbulan per kapita beserta indikator tren/status | 4 KPI cards, progress bar, micro-sparkline 5 tahun |
+| Grid Visualisasi Utama | Timbulan vs tercatat terkelola + panduan baca; persentase terkelola per tahun + proporsi jalur pengurangan/penanganan; komposisi 9 kategori + indeks timbulan vs penduduk (`2021 = 100`) | Line + gap area chart, vertical bar, 3-segment donut, horizontal bar, index line chart |
+| Tabel Rincian Data | Tab *Komposisi Tahun Terpilih* (pencarian, filter chip, sorting, inline bar, paginasi) & Tab *Ringkasan Multi-Tahun 2021–2025* (klik baris untuk ganti tahun) | Interactive data table 2-tab |
 
 ## Cara membuka
 
@@ -21,7 +22,7 @@ python -m http.server 8000
 
 Tidak perlu `npm install` / build step.
 
-Filter tahun di header berlaku untuk **seluruh dashboard** (hero ringkasan, fakta kunci, panel kesenjangan, donut, komposisi, panduan membaca, dan sorotan). Pilihan tahun disimpan di URL, misalnya `?tahun=2023`, sehingga bisa dibagikan dan mendukung tombol back/forward browser. Jika parameter tidak valid, dashboard kembali ke tahun terbaru.
+Filter tahun di header (segmented pills di desktop / dropdown di mobile, serta klik langsung pada batang grafik capaian atau baris tabel multi-tahun) berlaku untuk **seluruh dashboard** (4 kartu KPI, strip konteks, seluruh grafik, panduan baca, tabel komposisi, dan panel detail). Pilihan tahun disimpan di URL, misalnya `?tahun=2023`, sehingga bisa dibagikan dan mendukung tombol back/forward browser. Jika parameter tidak valid, dashboard kembali ke tahun terbaru.
 
 ## Regenerasi data dashboard
 
@@ -66,7 +67,7 @@ Grafik utama tidak memakai warna hijau/kuning/merah. Bar tahun yang sebanding me
 - Panel *Catatan & sumber* memakai `role="dialog"`, `aria-modal`, focus trap, tombol Escape, backdrop, dan pengembalian fokus ke pemicu.
 - Uji axe (WCAG 2.1 A/AA + best-practice, axe-core 4.12.1) pada 1280 px, 360 px, dan dialog terbuka: **0 violation**. Tersisa temuan `color-contrast` dalam kategori *incomplete* (59 node) yang perlu review manual, bukan violation; belum divalidasi dengan pembaca layar sungguhan.
 - Penandaan 2024–2025 tidak hanya lewat warna: ada teks “perlu tinjau”, chip, pola arsir, dan catatan.
-- Layout cetak A4 terverifikasi **2 halaman** pada data 2025 di Chrome headless. Glosarium dan tabel komposisi otomatis dibuka saat mencetak lalu ditutup kembali; grafik analisis lanjutan ikut tercetak hanya jika panelnya sedang dibuka.
+- Layout cetak A4 (`@media print`) otomatis menampilkan seluruh baris tabel komposisi tanpa terpotong paginasi lalu mengembalikannya setelah selesai mencetak.
 
 ## Publikasi dataset
 
@@ -79,9 +80,9 @@ Dataset bersih dipublikasikan di Zenodo:
 ## Struktur repo
 
 ```
-index.html              # halaman dashboard (3 zona + dialog detail)
-assets/styles.css       # tampilan, responsif, aksesibilitas, print
-assets/app.js           # render chart SVG, filter tahun global, dialog, tooltip
+index.html              # halaman dashboard (4 lapisan UI + slide-over drawer)
+assets/styles.css       # design system MD3 light mode, grid 12-kolom, responsif, aksesibilitas, print
+assets/app.js           # render chart SVG, sparkline KPI, filter tahun global, tabel interaktif, dialog, tooltip
 assets/data.js          # DIGENERATE dari CSV (jangan edit manual)
 tools/build_data.py     # ekstraksi CSV → assets/data.js
 tools/verify_dashboard.py  # verifikasi independen angka dashboard
@@ -98,8 +99,8 @@ docs/                   # screenshot untuk dokumentasi
 
 ## Screenshot
 
-- `docs/dashboard-full.png` — tampilan penuh dashboard tahun 2025: hero “61,6% sampah tercatat terkelola”, tiga fakta kunci, tren 2021–2025, komposisi 9 kategori, donut, dan sorotan.
-- `docs/dashboard-interaksi-tahun-2021-detail.png` — filter tahun 2021 (komposisi dengan kategori NA) + panel “Catatan & sumber” terbuka.
+- `docs/dashboard-full.png` — tampilan penuh dashboard tahun 2025 (perlu tinjau): sticky light header, 4 kartu KPI dengan micro-sparkline, tren timbulan vs terkelola, capaian per tahun, donut jalur pengelolaan, komposisi 9 kategori, indeks penduduk, dan tabel rincian interaktif.
+- `docs/dashboard-interaksi-tahun-2021-detail.png` — tampilan filter tahun dasar 2021 (`?tahun=2021`): status tahun dasar, komposisi 8 kategori terisi + `Kayu Ranting (NA)`, serta tabel komposisi tahun 2021.
 
 ## Kontributor
 
