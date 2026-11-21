@@ -1561,7 +1561,7 @@
     DATA.years.forEach(function (year) {
       var option = document.createElement('option');
       option.value = String(year);
-      option.textContent = 'Tahun ' + year + (isReviewYear(year) ? ' · perlu tinjau' : '');
+      option.textContent = String(year) + (isReviewYear(year) ? ' · perlu tinjau' : '');
       select.appendChild(option);
     });
   }
